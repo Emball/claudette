@@ -153,13 +153,15 @@ function removeProgressBar(bar) {
 // ── Settings ─────────────────────────────────────────────────────────────────
 
 const CONTENT_DEFAULTS = {
-  format:   'md',
-  thinking: false,
-  tools:    true,
-  images:   true,
-  ocr:      false,
-  zip:      true,
-  zipFiles: true,
+  format:        'md',
+  thinking:      false,
+  toolSummaries: true,
+  includeBash:   false,
+  images:        true,
+  ocr:           false,
+  zip:           true,
+  zipFiles:      true,
+  userName:      'User',
 };
 
 function loadContentSettings() {

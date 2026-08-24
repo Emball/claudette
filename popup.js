@@ -1,25 +1,30 @@
 // popup.js — settings + progress mirror
 
 const DEFAULTS = {
-  format:    'md',
-  thinking:  false,
-  tools:     true,
-  images:    true,
-  ocr:       false,
-  zip:       true,
-  zipFiles:  true,
+  format:        'md',
+  thinking:      false,
+  toolSummaries: true,
+  includeBash:   false,
+  images:        true,
+  ocr:           false,
+  zip:           true,
+  zipFiles:      true,
+  userName:      'User',
 };
 
 const btnMd       = document.getElementById('btn-md');
 const btnTxt      = document.getElementById('btn-txt');
 const togThink    = document.getElementById('tog-thinking');
 const togTools    = document.getElementById('tog-tools');
+const togBash     = document.getElementById('tog-bash');
 const togImages   = document.getElementById('tog-images');
 const togOcr      = document.getElementById('tog-ocr');
 const togZip      = document.getElementById('tog-zip');
 const togZipFiles = document.getElementById('tog-zip-files');
 const subOcr      = document.getElementById('sub-ocr');
 const subZip      = document.getElementById('sub-zip');
+const subBash     = document.getElementById('sub-bash');
+const inpUserName = document.getElementById('inp-username');
 const status      = document.getElementById('status');
 const progLabel   = document.getElementById('prog-label');
 const progFill    = document.getElementById('prog-fill');
@@ -34,16 +39,23 @@ function updateSubRows(imagesOn) {
   subZip.classList.toggle('disabled', !imagesOn);
 }
 
+function updateBashRow(toolsOn) {
+  subBash.classList.toggle('disabled', !toolsOn);
+}
+
 function applySettings(s) {
   btnMd.classList.toggle('active', s.format === 'md');
   btnTxt.classList.toggle('active', s.format === 'txt');
-  togThink.checked    = s.thinking;
-  togTools.checked    = s.tools;
-  togImages.checked   = s.images;
-  togOcr.checked      = s.ocr;
-  togZip.checked      = s.zip;
-  togZipFiles.checked = s.zipFiles;
+  togThink.checked     = s.thinking;
+  togTools.checked     = s.toolSummaries;
+  togBash.checked      = s.includeBash;
+  togImages.checked    = s.images;
+  togOcr.checked        = s.ocr;
+  togZip.checked        = s.zip;
+  togZipFiles.checked   = s.zipFiles;
+  inpUserName.value     = s.userName === 'User' ? '' : s.userName;
   updateSubRows(s.images);
+  updateBashRow(s.toolSummaries);
 }
 
 chrome.storage.sync.get(DEFAULTS, applySettings);
@@ -74,11 +86,17 @@ function makeToggle(el, key, onChange) {
 }
 
 makeToggle(togThink,    'thinking');
-makeToggle(togTools,    'tools');
+makeToggle(togTools,    'toolSummaries', updateBashRow);
+makeToggle(togBash,     'includeBash');
 makeToggle(togImages,   'images', updateSubRows);
 makeToggle(togOcr,      'ocr');
 makeToggle(togZip,      'zip');
 makeToggle(togZipFiles, 'zipFiles');
+
+inpUserName.addEventListener('change', () => {
+  const val = inpUserName.value.trim() || 'User';
+  chrome.storage.sync.set({ userName: val }, () => flash('Saved'));
+});
 
 // ── Progress mirror ───────────────────────────────────────────────────────────
 // Polls chrome.storage.local for cce_progress written by content.js

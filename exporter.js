@@ -1,13 +1,15 @@
 // exporter.js — converts raw Claude API conversation data to MD and packages ZIP
 
 const EXPORTER_DEFAULTS = {
-  format:   'md',
-  thinking: false,
-  tools:    true,
-  images:   true,
-  ocr:      false,
-  zip:      true,
-  zipFiles: true,
+  format:        'md',
+  thinking:      false,
+  toolSummaries: true,
+  includeBash:   false,
+  images:        true,
+  ocr:           false,
+  zip:           true,
+  zipFiles:      true,
+  userName:      'User',
 };
 
 // Returns a backtick fence string safe to wrap `content` in.
@@ -149,25 +151,16 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
     }
 
     if (block.type === 'tool_use') {
-      if (!settings.tools) continue;
+      if (!settings.toolSummaries) continue;
       const name = block.name || 'tool';
+      if (!settings.includeBash && name.toLowerCase().includes('bash')) continue;
       const title = block.title || name;
-      if (block.input && Object.keys(block.input).length > 0) {
-        const inputStr = JSON.stringify(block.input, null, 2);
-        const f1 = safeFence(inputStr);
-        parts.push(`> **${title}**\n${f1}json\n${inputStr}\n${f1}`);
-      } else {
-        parts.push(`> **${title}**`);
-      }
+      parts.push(`> **${title}**`);
       continue;
     }
 
     if (block.type === 'tool_result') {
-      if (!settings.tools) continue;
-      const content = Array.isArray(block.content)
-        ? block.content.map(c => c.text || '').join('\n')
-        : (block.content || '');
-      if (content.trim()) { const f2 = safeFence(content); parts.push(`${f2}\n${content.trim()}\n${f2}`); }
+      // Full tool_result content is never rendered — summaries only include the tool_use title.
       continue;
     }
 
@@ -215,7 +208,8 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
 // --- Message renderer ---
 
 async function messageToText(msg, images, nonImageFiles, settings, imgCounters) {
-  const role = msg.sender === 'human' ? '**User:**' : '**Assistant:**';
+  const userLabel = (settings.userName || 'User').trim() || 'User';
+  const role = msg.sender === 'human' ? `**${userLabel}:**` : '**Claude:**';
   let body = '';
 
   if (Array.isArray(msg.content)) {

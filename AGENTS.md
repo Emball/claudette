@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.2.0.4**
+**Current version: 6.2.1.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -143,8 +143,8 @@ All discovered content block types, their fields, and how we render them:
 }
 ```
 - `title` is the human-readable label Claude generates — use this, not `name`, as the display header
-- `input` is a JSON object of parameters — can be empty `{}`
-- Render as `> **title**` blockquote + fenced JSON block for input
+- Toggle: include tool call summaries (`toolSummaries`, default on). When on, renders **only** `> **title**` — `input` and any paired `tool_result` are never rendered, regardless of settings. This is intentional: full tool I/O (especially bash) can run to millions of characters and pollutes pasted transcripts.
+- Sub-toggle: include bash calls (`includeBash`, default off, only relevant when `toolSummaries` is on). When off, any `tool_use` whose `name` contains `bash` is skipped entirely, even as a summary line.
 
 **`tool_result`**
 ```json
@@ -156,8 +156,7 @@ All discovered content block types, their fields, and how we render them:
   ]
 }
 ```
-- `content` is an array of sub-blocks (usually `text`, sometimes `image`)
-- Render as fenced code block with raw content
+- Never rendered. Only the paired `tool_use` title is shown (see above).
 
 **`artifact`**
 ```json
@@ -311,7 +310,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 
 ## Export Format
 
-**Message labels:** `**User:**` and `**Assistant:**` bold inline, content follows on the same line. No line break between label and content.
+**Message labels:** `**{userName}:**` and `**Claude:**` bold inline, content follows on the same line. No line break between label and content. `userName` is a per-install setting (default `"User"`) so pasted transcripts use the account holder's actual name instead of the generic "User" — this prevents pattern-matching agents from confusing themselves and hallucinating both sides of long transcript chains.
 
 **Action/tool headers:** `> **Title of action**` — bold blockquote. Used for tool calls, bash commands, file writes, web searches. Title is whatever Claude generated for that action.
 

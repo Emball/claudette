@@ -46,6 +46,18 @@
     .row.sub .label { color: #9a9a9a; font-size: 11px; }
     .slow-note { color: #5a5a5a; font-size: 10px; margin-left: 4px; }
 
+    .name-input {
+      background: #1c1c1c;
+      border: 1px solid #333;
+      border-radius: 5px;
+      color: #c8c8c8;
+      font-size: 12px;
+      padding: 4px 7px;
+      width: 100px;
+      text-align: right;
+    }
+    .name-input:focus { outline: none; border-color: #555; }
+
     .toggle-group {
       display: flex;
       background: #2a2a2a;
@@ -150,6 +162,11 @@
     </div>
   </div>
 
+  <div class="row">
+    <span class="label">Your name <span class="slow-note">(in transcripts)</span></span>
+    <input type="text" id="inp-username" class="name-input" placeholder="User" maxlength="40">
+  </div>
+
   <div class="divider"></div>
   <div class="section-label">Content</div>
 
@@ -163,9 +180,18 @@
   </div>
 
   <div class="row">
-    <span class="label">Include tool calls</span>
+    <span class="label">Include tool call summaries</span>
     <label class="switch">
       <input type="checkbox" id="tog-tools" checked>
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </label>
+  </div>
+
+  <div class="row sub" id="sub-bash">
+    <span class="label">Include bash calls</span>
+    <label class="switch">
+      <input type="checkbox" id="tog-bash">
       <div class="switch-track"></div>
       <div class="switch-thumb"></div>
     </label>
