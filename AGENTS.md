@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.2.1.0**
+**Current version: 6.2.2.1**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -16,6 +16,8 @@ The repo is public. The extension is not on the Chrome Web Store — install is 
 **Claudette voice:** Any time Claudette communicates with Claude programmatically — session chaining injections, background compression prompts, or any other automated Claude interaction — it speaks in first person and introduces itself naturally. The goal is that Claude and Claudette feel like companion apps, not like a script hitting an API. The user never sees these messages; they're a back-channel between the two products.
 
 **No silent failures:** All modules log their processes. No errors silently swallowed.
+
+**Investigate before implementing:** Claude.ai is a closed, rapidly-evolving target. Never write code based on assumptions about how it works internally. Before implementing anything that touches Claude.ai's UI, APIs, or browser behavior, the actual mechanism must be confirmed first — via DevTools (Network tab, WebSocket messages, Console, Initiator chain), console instrumentation snippets, or direct observation. State what is confirmed and what is still unknown before writing a line of extension code. A wrong guess that gets committed costs more than taking the time to look first. This applies especially to: STT/mic behavior, DOM structure, API endpoints, WebSocket protocols, and any browser API Claude.ai may or may not be using.
 
 ---
 
@@ -67,6 +69,42 @@ Headers: `Accept: application/json`. GETs only unless noted.
 **Alternative org detection:** `document.cookie` contains `lastActiveOrg={uuid}` — simpler but less reliable than the API approach. Useful as a fallback.
 
 **Pagination:** The `/chat_conversations` list endpoint returns all conversations as a flat array with no pagination observed. May change as accounts scale.
+
+---
+
+### STT (Speech-to-Text) — Confirmed Discovery Log
+
+Claude.ai does **not** use the browser's `SpeechRecognition` / `webkitSpeechRecognition` API. Do not patch those.
+
+**Transport:** WebSocket — `wss://claude.ai/api/ws/speech_to_text/voice_stream`
+**Upgrade handshake:** `101 Switching Protocols` (confirmed via DevTools Network tab)
+**Provider:** Deepgram Nova 3 (`stt_provider=deepgram-nova3`)
+
+**WebSocket query params (confirmed):**
+- `encoding=linear16` — raw PCM audio, not compressed
+- `sample_rate=16000` — 16kHz mono
+- `channels=1`
+- `endpointing_ms=300`
+- `utterance_end_ms=1000`
+- `language=en-US`
+- `use_conversation_engine=true`
+- `stt_provider=deepgram-nova3`
+- `client_platform=web_claude_ai`
+- `conversation_uuid` + `organization_uuid`
+
+**WebSocket message protocol (confirmed via DevTools Messages tab):**
+- Outbound: binary frames — raw linear16 PCM audio chunks (~2.7KB each, ~80ms intervals)
+- Inbound: JSON text frames — `{"type":"TranscriptText","data":"partial transcript"}`
+- Termination: Claude.ai sends `{"type":"CloseStream"}` → server replies `{"type":"TranscriptEndpoint"}` → socket closes
+
+**Tab-switch behavior (confirmed):** Switching tabs or full-screening another app causes Claude.ai to send `{"type":"CloseStream"}` over the WebSocket, which terminates the session. This is what kills the mic. The `POST https://a-api.anthropic.com/v1/b` beacon fires at the same moment (analytics/telemetry — not the cause).
+
+**Current fix approach (6.2.2.1 — unverified effectiveness):** `stt_patch.js` wraps `window.WebSocket` at `document_start` and intercepts `send()` on voice_stream sockets to suppress `CloseStream` messages when `sttPersist` is active. Setting is bridged from `chrome.storage` via a `CustomEvent` dispatched by `content.js` (storage unavailable at document_start page-world). **Still needs real-world confirmation that suppressing CloseStream is sufficient and that audio chunks continue flowing while the tab is hidden.**
+
+**Open unknowns — must investigate before further work:**
+- Does the browser stop firing `getUserMedia` / `MediaRecorder` data events when the tab is hidden, independent of the WebSocket? If audio chunk sending also stops, suppressing CloseStream alone won't help.
+- Does Deepgram time out the server side if no audio arrives for N seconds?
+- Does Claude.ai have a visibility listener that also stops the mic at the JS level before CloseStream fires?
 
 ---
 
