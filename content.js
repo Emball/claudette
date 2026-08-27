@@ -466,3 +466,23 @@ async function init() {
 }
 
 init();
+
+// ── STT persist bridge ────────────────────────────────────────────────────────
+// stt_patch.js runs in the page world at document_start where chrome.storage
+// is unavailable. We bridge the setting via a CustomEvent dispatched from here.
+
+function dispatchSttPersist(enabled) {
+  window.dispatchEvent(new CustomEvent('_cce_stt_persist', { detail: enabled }));
+}
+
+chrome.storage.local.get({ devMode: false, sttPersist: false }, (data) => {
+  dispatchSttPersist(data.devMode && data.sttPersist);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (!('devMode' in changes || 'sttPersist' in changes)) return;
+  chrome.storage.local.get({ devMode: false, sttPersist: false }, (data) => {
+    dispatchSttPersist(data.devMode && data.sttPersist);
+  });
+});
