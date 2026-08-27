@@ -238,6 +238,21 @@
 
   <div class="divider"></div>
 
+  <div id="dev-section" style="display:none;">
+    <div class="section-label" style="color:#7a6030;">
+      <span style="background:#3a2800;color:#c8902a;border-radius:3px;padding:1px 5px;font-size:9px;letter-spacing:0.1em;margin-right:5px;">DEV</span>Experimental
+    </div>
+    <div class="row">
+      <span class="label" style="color:#b89060;">Keep mic active on tab switch</span>
+      <label class="switch">
+        <input type="checkbox" id="tog-stt-persist">
+        <div class="switch-track" style=""></div>
+        <div class="switch-thumb"></div>
+      </label>
+    </div>
+    <div class="divider"></div>
+  </div>
+
   <div class="progress-section">
     <div class="progress-label" id="prog-label">Idle</div>
     <div class="progress-track">
@@ -245,7 +260,10 @@
     </div>
   </div>
 
-  <div class="status" id="status"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
+    <span id="version-badge" style="font-size:9px;color:#333;cursor:default;user-select:none;letter-spacing:0.04em;">v6.2.2.0</span>
+    <div class="status" id="status" style="margin-top:0;"></div>
+  </div>
 
   <script src="popup.js"></script>
 </body>

@@ -12,6 +12,11 @@ const DEFAULTS = {
   userName:      'User',
 };
 
+const LOCAL_DEFAULTS = {
+  devMode:    false,
+  sttPersist: false,
+};
+
 const btnMd       = document.getElementById('btn-md');
 const btnTxt      = document.getElementById('btn-txt');
 const togThink    = document.getElementById('tog-thinking');
@@ -108,10 +113,52 @@ function updateProgress(data) {
   progLabel.textContent = label || 'Idle';
 }
 
-// Poll every 300ms while popup is open
 chrome.storage.local.get(['cce_progress'], updateProgress);
 const pollTimer = setInterval(() => {
   chrome.storage.local.get(['cce_progress'], updateProgress);
 }, 300);
 
 window.addEventListener('unload', () => clearInterval(pollTimer));
+
+// ── Dev mode ──────────────────────────────────────────────────────────────────
+
+const devSection   = document.getElementById('dev-section');
+const togSttPersist = document.getElementById('tog-stt-persist');
+const versionBadge = document.getElementById('version-badge');
+
+function applyDevMode(enabled) {
+  devSection.style.display = enabled ? 'block' : 'none';
+  versionBadge.style.color = enabled ? '#c8902a' : '#333';
+}
+
+chrome.storage.local.get(LOCAL_DEFAULTS, local => {
+  applyDevMode(local.devMode);
+  togSttPersist.checked = local.sttPersist;
+});
+
+togSttPersist.addEventListener('change', () => {
+  const val = togSttPersist.checked;
+  chrome.storage.local.set({ sttPersist: val }, () => flash(val ? 'Mic persist on' : 'Mic persist off'));
+});
+
+// Tap version badge 4 times within 2s to toggle dev mode
+let _tapCount = 0;
+let _tapTimer = null;
+
+versionBadge.addEventListener('click', () => {
+  _tapCount++;
+  clearTimeout(_tapTimer);
+  _tapTimer = setTimeout(() => { _tapCount = 0; }, 2000);
+
+  if (_tapCount >= 4) {
+    _tapCount = 0;
+    clearTimeout(_tapTimer);
+    chrome.storage.local.get(LOCAL_DEFAULTS, local => {
+      const next = !local.devMode;
+      chrome.storage.local.set({ devMode: next }, () => {
+        applyDevMode(next);
+        flash(next ? 'Dev mode on' : 'Dev mode off');
+      });
+    });
+  }
+});
