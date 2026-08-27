@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.2.2.1**
+**Current version: 6.2.3.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -97,14 +97,14 @@ Claude.ai does **not** use the browser's `SpeechRecognition` / `webkitSpeechReco
 - Inbound: JSON text frames — `{"type":"TranscriptText","data":"partial transcript"}`
 - Termination: Claude.ai sends `{"type":"CloseStream"}` → server replies `{"type":"TranscriptEndpoint"}` → socket closes
 
-**Tab-switch behavior (confirmed):** Switching tabs or full-screening another app causes Claude.ai to send `{"type":"CloseStream"}` over the WebSocket, which terminates the session. This is what kills the mic. The `POST https://a-api.anthropic.com/v1/b` beacon fires at the same moment (analytics/telemetry — not the cause).
+**Tab-switch behavior (confirmed via diagnostic):**
+- `getUserMedia` track does NOT fire `mute`, `unmute`, or `ended` on tab switch — the mic hardware stays active
+- `ScriptProcessorNode.onaudioprocess` gets throttled by Chrome when `document.visibilityState === 'hidden'` — this starves the audio pipeline
+- Claude.ai has a `visibilitychange` listener (confirmed via console: "DOM event tracking torn down") that tears down the mic at the JS level
+- `CloseStream` is a downstream consequence of the above, not the root cause
+- `getUserMedia` is called twice on page load — Claude.ai re-acquires the stream when starting a session
 
-**Current fix approach (6.2.2.1 — unverified effectiveness):** `stt_patch.js` wraps `window.WebSocket` at `document_start` and intercepts `send()` on voice_stream sockets to suppress `CloseStream` messages when `sttPersist` is active. Setting is bridged from `chrome.storage` via a `CustomEvent` dispatched by `content.js` (storage unavailable at document_start page-world). **Still needs real-world confirmation that suppressing CloseStream is sufficient and that audio chunks continue flowing while the tab is hidden.**
-
-**Open unknowns — must investigate before further work:**
-- Does the browser stop firing `getUserMedia` / `MediaRecorder` data events when the tab is hidden, independent of the WebSocket? If audio chunk sending also stops, suppressing CloseStream alone won't help.
-- Does Deepgram time out the server side if no audio arrives for N seconds?
-- Does Claude.ai have a visibility listener that also stops the mic at the JS level before CloseStream fires?
+**Fix approach (6.2.3.0):** `stt_patch.js` spoofs `document.visibilityState` → `"visible"` and `document.hidden` → `false` at all times when `sttPersist` is active, and uses `stopImmediatePropagation()` at capture phase to swallow `visibilitychange` events before Claude.ai's listener sees them. Also keeps the CloseStream suppression as belt-and-suspenders. Both patches are active only when `devMode + sttPersist` are on.
 
 ---
 
