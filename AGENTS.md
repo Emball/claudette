@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.2.3.0**
+**Current version: 6.2.4.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -104,7 +104,7 @@ Claude.ai does **not** use the browser's `SpeechRecognition` / `webkitSpeechReco
 - `CloseStream` is a downstream consequence of the above, not the root cause
 - `getUserMedia` is called twice on page load — Claude.ai re-acquires the stream when starting a session
 
-**Fix approach (6.2.3.0):** `stt_patch.js` spoofs `document.visibilityState` → `"visible"` and `document.hidden` → `false` at all times when `sttPersist` is active, and uses `stopImmediatePropagation()` at capture phase to swallow `visibilitychange` events before Claude.ai's listener sees them. Also keeps the CloseStream suppression as belt-and-suspenders. Both patches are active only when `devMode + sttPersist` are on.
+**Fix approach (6.2.4.0):** `stt_patch.js` spoofs `document.visibilityState` → `"visible"` and `document.hidden` → `false` at all times when `sttPersist` is active, and uses `stopImmediatePropagation()` at capture phase to swallow `visibilitychange` events before Claude.ai's listener sees them. Also keeps the CloseStream suppression as belt-and-suspenders. `sttPersist` is a standard user-facing toggle in the Voice section of the popup (stored in `chrome.storage.sync`), no longer gated behind dev mode. The patch is active only when `sttPersist` is on. Side-effect: spoofing `visibilityState` globally may affect other visibility-gated behavior on Claude.ai (lazy loading, analytics pausing, etc.) — acceptable tradeoff, user opt-in.
 
 ---
 
@@ -389,6 +389,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | `ocr` | `false` | Run Tesseract OCR on screenshots — **off by default** (slow) |
 | `zip` | `true` | Package image files into ZIP (sub-toggle, requires `images: true`) |
 | `zipFiles` | `true` | ZIP non-image file attachments into `files/` folder |
+| `sttPersist` | `false` | Keep mic active when switching tabs — spoofs `document.visibilityState` to prevent Claude.ai's visibility listener and Chrome's ScriptProcessorNode throttle from killing the STT stream |
 
 Settings loaded fresh at the start of each export. Sub-toggles (`ocr`, `zip`) are disabled in the UI when their parent (`images`) is off.
 

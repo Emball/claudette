@@ -475,14 +475,12 @@ function dispatchSttPersist(enabled) {
   window.dispatchEvent(new CustomEvent('_cce_stt_persist', { detail: enabled }));
 }
 
-chrome.storage.local.get({ devMode: false, sttPersist: false }, (data) => {
-  dispatchSttPersist(data.devMode && data.sttPersist);
+chrome.storage.sync.get({ sttPersist: false }, (data) => {
+  dispatchSttPersist(data.sttPersist);
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local') return;
-  if (!('devMode' in changes || 'sttPersist' in changes)) return;
-  chrome.storage.local.get({ devMode: false, sttPersist: false }, (data) => {
-    dispatchSttPersist(data.devMode && data.sttPersist);
-  });
+  if (area !== 'sync') return;
+  if (!('sttPersist' in changes)) return;
+  dispatchSttPersist(!!changes.sttPersist.newValue);
 });

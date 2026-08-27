@@ -13,7 +13,10 @@ const DEFAULTS = {
 };
 
 const LOCAL_DEFAULTS = {
-  devMode:    false,
+  devMode: false,
+};
+
+const SYNC_EXTRA_DEFAULTS = {
   sttPersist: false,
 };
 
@@ -63,7 +66,10 @@ function applySettings(s) {
   updateBashRow(s.toolSummaries);
 }
 
-chrome.storage.sync.get(DEFAULTS, applySettings);
+chrome.storage.sync.get({ ...DEFAULTS, ...SYNC_EXTRA_DEFAULTS }, (s) => {
+  applySettings(s);
+  togSttPersist.checked = s.sttPersist;
+});
 
 btnMd.addEventListener('click', () => {
   chrome.storage.sync.set({ format: 'md' }, () => {
@@ -133,12 +139,11 @@ function applyDevMode(enabled) {
 
 chrome.storage.local.get(LOCAL_DEFAULTS, local => {
   applyDevMode(local.devMode);
-  togSttPersist.checked = local.sttPersist;
 });
 
 togSttPersist.addEventListener('change', () => {
   const val = togSttPersist.checked;
-  chrome.storage.local.set({ sttPersist: val }, () => flash(val ? 'Mic persist on' : 'Mic persist off'));
+  chrome.storage.sync.set({ sttPersist: val }, () => flash(val ? 'Mic persist on' : 'Mic persist off'));
 });
 
 // Tap version badge 4 times within 2s to toggle dev mode
