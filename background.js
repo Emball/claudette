@@ -14,11 +14,25 @@ async function apiFetch(path) {
   return response.json();
 }
 
-async function detectOrgId() {
+async function detectOrgAndAccount() {
   const orgs = await apiFetch('/organizations');
   if (!Array.isArray(orgs) || orgs.length === 0) throw new Error('No organizations found');
-  const chatOrg = orgs.find(o => o.capabilities?.includes('chat'));
-  return (chatOrg || orgs[0]).uuid;
+  const chatOrg = orgs.find(o => o.capabilities?.includes('chat')) || orgs[0];
+  const orgId = chatOrg.uuid;
+
+  // Try to resolve a human-readable account identity
+  let email = null;
+  try {
+    const acct = await apiFetch('/account');
+    email = acct?.email_address || acct?.email || null;
+  } catch (_) {}
+
+  return { orgId, email, orgName: chatOrg.name || null };
+}
+
+async function detectOrgId() {
+  const { orgId } = await detectOrgAndAccount();
+  return orgId;
 }
 
 async function fetchConversation(orgId, convId) {
@@ -171,6 +185,218 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     detectOrgId()
       .then(orgId => sendResponse({ success: true, orgId }))
       .catch(err  => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'detectOrgAndAccount') {
+    detectOrgAndAccount()
+      .then(info => sendResponse({ success: true, ...info }))
+      .catch(err  => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'sweepAccount') {
+    (async () => {
+      try {
+        const { orgId, email, orgName } = await detectOrgAndAccount();
+
+        // Load account registry
+        const stored = await chrome.storage.local.get(['accountRegistry', 'sweepCursor']);
+        const registry = stored.accountRegistry || {};
+        const cursor   = stored.sweepCursor || {};
+
+        // Fetch full conversation list
+        const allConvs = await fetchAllConversations(orgId);
+        const convIndex = {};
+        for (const c of allConvs) {
+          convIndex[c.uuid] = { uuid: c.uuid, name: c.name, created_at: c.created_at, updated_at: c.updated_at };
+        }
+
+        // Register / update account entry
+        if (!registry[orgId]) {
+          registry[orgId] = { orgId, email, orgName, firstSeen: Date.now() };
+        }
+        registry[orgId].email    = email || registry[orgId].email;
+        registry[orgId].orgName  = orgName || registry[orgId].orgName;
+        registry[orgId].convCount = allConvs.length;
+        registry[orgId].sweepStarted = Date.now();
+        registry[orgId].sweepDone = false;
+        await chrome.storage.local.set({ accountRegistry: registry });
+
+        // Resumable cursor: skip already-fetched UUIDs for this org
+        const prevFetched = new Set(cursor[orgId] || []);
+        const pending = allConvs.map(c => c.uuid).filter(id => !prevFetched.has(id));
+
+        console.log(`[bg] sweep ${orgId}: ${allConvs.length} total, ${pending.length} to fetch`);
+
+        // Notify popup of sweep start
+        chrome.runtime.sendMessage({
+          action: 'sweepProgress', orgId,
+          done: prevFetched.size, total: allConvs.length, phase: 'fetching'
+        }).catch(() => {});
+
+        // Fetch in batches; write to library as we go
+        const stored2 = await chrome.storage.local.get('library');
+        const library = stored2.library || {};
+        if (!library[orgId]) library[orgId] = {};
+
+        const BATCH = 20;
+        let fetched = prevFetched.size;
+
+        for (let bStart = 0; bStart < pending.length; bStart += BATCH) {
+          const batch = pending.slice(bStart, bStart + BATCH);
+
+          // Pause if memory is high
+          while (estimatedHeapMB() > MEM_CEILING_MB) {
+            console.warn(`[bg] sweep heap ~${estimatedHeapMB().toFixed(0)}MB — pausing`);
+            await delay(1500);
+          }
+
+          const batchResults = await Promise.all(
+            batch.map(async (convId, bi) => {
+              await delay(bi * FETCH_DELAY_MS);
+              try {
+                const data = await fetchConversation(orgId, convId);
+                return { convId, success: true, data };
+              } catch (err) {
+                console.error(`[bg] sweep failed ${convId}:`, err.message);
+                return { convId, success: false };
+              }
+            })
+          );
+
+          for (const r of batchResults) {
+            if (r.success) {
+              const meta = convIndex[r.convId] || {};
+              library[orgId][r.convId] = {
+                uuid: r.convId,
+                name: meta.name || '',
+                created_at: meta.created_at || null,
+                updated_at: meta.updated_at || null,
+                messages: r.data.chat_messages || r.data.messages || [],
+                fetchedAt: Date.now(),
+              };
+              prevFetched.add(r.convId);
+            }
+            fetched++;
+          }
+
+          // Persist library + cursor after each batch
+          cursor[orgId] = [...prevFetched];
+          await chrome.storage.local.set({ library, sweepCursor: cursor });
+
+          chrome.runtime.sendMessage({
+            action: 'sweepProgress', orgId,
+            done: fetched, total: allConvs.length, phase: 'fetching'
+          }).catch(() => {});
+        }
+
+        // Mark sweep complete
+        const reg2 = (await chrome.storage.local.get('accountRegistry')).accountRegistry || registry;
+        reg2[orgId].sweepDone = true;
+        reg2[orgId].sweepCompletedAt = Date.now();
+        reg2[orgId].convCount = Object.keys(library[orgId] || {}).length;
+        await chrome.storage.local.set({ accountRegistry: reg2 });
+
+        chrome.runtime.sendMessage({
+          action: 'sweepProgress', orgId,
+          done: fetched, total: allConvs.length, phase: 'done'
+        }).catch(() => {});
+
+        sendResponse({ success: true, orgId, fetched, total: allConvs.length });
+      } catch (err) {
+        console.error('[bg] sweep error:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'exportLibrary') {
+    (async () => {
+      try {
+        const stored = await chrome.storage.local.get(['library', 'accountRegistry']);
+        const library  = stored.library  || {};
+        const registry = stored.accountRegistry || {};
+
+        // Build JSONL: one line per conversation, with account metadata embedded
+        const lines = [];
+        for (const [orgId, convMap] of Object.entries(library)) {
+          const acct = registry[orgId] || { orgId };
+          for (const conv of Object.values(convMap)) {
+            lines.push(JSON.stringify({
+              orgId,
+              accountEmail: acct.email || null,
+              accountName:  acct.orgName || null,
+              ...conv,
+            }));
+          }
+        }
+
+        const blob = new Blob([lines.join('\n')], { type: 'application/jsonl' });
+        const url  = URL.createObjectURL(blob);
+        const ts   = new Date().toISOString().slice(0, 10);
+        await chrome.downloads.download({
+          url,
+          filename: `claudette-library-${ts}.jsonl`,
+          saveAs: false,
+        });
+        URL.revokeObjectURL(url);
+
+        sendResponse({ success: true, lineCount: lines.length });
+      } catch (err) {
+        console.error('[bg] exportLibrary error:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'getLibraryStats') {
+    (async () => {
+      try {
+        const stored = await chrome.storage.local.get(['library', 'accountRegistry']);
+        const library  = stored.library  || {};
+        const registry = stored.accountRegistry || {};
+        const stats = Object.entries(registry).map(([orgId, acct]) => ({
+          orgId,
+          email:     acct.email || null,
+          orgName:   acct.orgName || null,
+          firstSeen: acct.firstSeen || null,
+          sweepDone: acct.sweepDone || false,
+          sweepCompletedAt: acct.sweepCompletedAt || null,
+          convCount: Object.keys(library[orgId] || {}).length,
+        }));
+        sendResponse({ success: true, stats });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'clearLibrary') {
+    (async () => {
+      try {
+        const { orgId } = request;
+        if (orgId) {
+          // Clear single account
+          const stored = await chrome.storage.local.get(['library', 'sweepCursor', 'accountRegistry']);
+          const lib = stored.library || {};
+          const cur = stored.sweepCursor || {};
+          const reg = stored.accountRegistry || {};
+          delete lib[orgId];
+          delete cur[orgId];
+          if (reg[orgId]) { reg[orgId].sweepDone = false; delete reg[orgId].sweepCompletedAt; }
+          await chrome.storage.local.set({ library: lib, sweepCursor: cur, accountRegistry: reg });
+        } else {
+          await chrome.storage.local.remove(['library', 'sweepCursor']);
+        }
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
     return true;
   }
 

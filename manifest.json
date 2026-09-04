@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claudette",
-  "version": "6.2.4",
+  "version": "6.3.0",
   "description": "Export Claude.ai chats as Markdown or plain text with images.",
   "permissions": [
     "storage",

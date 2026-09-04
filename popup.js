@@ -126,6 +126,124 @@ const pollTimer = setInterval(() => {
 
 window.addEventListener('unload', () => clearInterval(pollTimer));
 
+// ── Library / multi-account sweep ─────────────────────────────────────────────
+
+const libAccountLabel   = document.getElementById('lib-account-label');
+const btnSweep          = document.getElementById('btn-sweep');
+const sweepProgressSec  = document.getElementById('sweep-progress-section');
+const sweepProgLabel    = document.getElementById('sweep-prog-label');
+const sweepProgFill     = document.getElementById('sweep-prog-fill');
+const libAccountsList   = document.getElementById('lib-accounts-list');
+const btnExportLib      = document.getElementById('btn-export-lib');
+
+let currentOrgId = null;
+let sweepRunning = false;
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
+function renderAccountsList(stats) {
+  if (!stats || !stats.length) {
+    libAccountsList.innerHTML = '<div style="color:#444;font-size:10px;padding:2px 0;">No accounts swept yet</div>';
+    return;
+  }
+  libAccountsList.innerHTML = stats.map(a => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1e1e1e;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:10px;color:#bbb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          ${a.email || a.orgName || a.orgId.slice(0, 12) + '…'}
+        </div>
+        <div style="font-size:9px;color:#555;">
+          ${a.convCount} chats · ${a.sweepDone ? '✓ ' + fmtDate(a.sweepCompletedAt) : 'incomplete'}
+          ${a.orgId === currentOrgId ? ' · <span style="color:#7a9a7a;">active</span>' : ''}
+        </div>
+      </div>
+      <button data-orgid="${a.orgId}" class="btn-clear-acct" style="
+        margin-left:6px;padding:2px 5px;background:#2a1a1a;border:1px solid #4a2a2a;
+        color:#8a5a5a;border-radius:3px;cursor:pointer;font-size:9px;flex-shrink:0;
+      ">✕</button>
+    </div>
+  `).join('');
+
+  libAccountsList.querySelectorAll('.btn-clear-acct').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const orgId = btn.dataset.orgid;
+      if (!confirm(`Clear cached data for this account?`)) return;
+      chrome.runtime.sendMessage({ action: 'clearLibrary', orgId }, () => refreshLibraryUI());
+    });
+  });
+}
+
+function refreshLibraryUI() {
+  chrome.runtime.sendMessage({ action: 'getLibraryStats' }, resp => {
+    if (resp?.success) renderAccountsList(resp.stats);
+  });
+}
+
+function setSweepRunning(running) {
+  sweepRunning = running;
+  btnSweep.disabled = running;
+  btnSweep.textContent = running ? '⏳ Sweeping…' : '⬇ Sweep this account';
+  sweepProgressSec.style.display = running ? 'block' : 'none';
+}
+
+// Detect current account on popup open
+chrome.runtime.sendMessage({ action: 'detectOrgAndAccount' }, resp => {
+  if (resp?.success) {
+    currentOrgId = resp.orgId;
+    const label = resp.email || resp.orgName || resp.orgId.slice(0, 16) + '…';
+    libAccountLabel.textContent = label;
+    libAccountLabel.style.color = '#aaa';
+  } else {
+    libAccountLabel.textContent = 'Not on claude.ai';
+  }
+  refreshLibraryUI();
+});
+
+btnSweep.addEventListener('click', () => {
+  if (sweepRunning) return;
+  setSweepRunning(true);
+  sweepProgLabel.textContent = 'Starting sweep…';
+  sweepProgFill.style.width = '0%';
+
+  chrome.runtime.sendMessage({ action: 'sweepAccount' }, resp => {
+    setSweepRunning(false);
+    if (resp?.success) {
+      flash(`Swept ${resp.fetched} chats`);
+      sweepProgLabel.textContent = `Done — ${resp.fetched} chats`;
+      sweepProgFill.style.width = '100%';
+    } else {
+      flash('Sweep failed');
+      sweepProgLabel.textContent = 'Sweep failed';
+      sweepProgFill.style.width = '0%';
+    }
+    refreshLibraryUI();
+  });
+});
+
+// Listen for live sweep progress from background
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action !== 'sweepProgress') return;
+  const pct = msg.total > 0 ? ((msg.done / msg.total) * 100).toFixed(1) : 0;
+  sweepProgFill.style.width = pct + '%';
+  sweepProgLabel.textContent = msg.phase === 'done'
+    ? `Done — ${msg.done} chats`
+    : `${msg.done} / ${msg.total} conversations`;
+});
+
+btnExportLib.addEventListener('click', () => {
+  btnExportLib.textContent = '…exporting';
+  btnExportLib.disabled = true;
+  chrome.runtime.sendMessage({ action: 'exportLibrary' }, resp => {
+    btnExportLib.textContent = '↓ Export full library (JSONL)';
+    btnExportLib.disabled = false;
+    if (resp?.success) flash(`Exported ${resp.lineCount} chats`);
+    else flash('Export failed');
+  });
+});
+
 // ── Dev mode ──────────────────────────────────────────────────────────────────
 
 const devSection   = document.getElementById('dev-section');

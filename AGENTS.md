@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.2.4.1**
+**Current version: 6.3.0.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -473,6 +473,55 @@ screenshot (score < 2):
 - Conversation fetch: 3 parallel slots, 200ms stagger between starts
 - Memory ceiling: 200MB estimated heap — pauses fetch queue if exceeded
 - OCR semaphore: 3 concurrent jobs max
+
+---
+
+## Multi-Account Library (Module 2 Foundation — shipped 6.3.0.0)
+
+**Purpose:** Archive every conversation across all accounts the user logs into, building a local corpus for search and categorization. Primary use case: users cycling through many accounts (e.g. 50+ Gmail accounts) who want a single exportable archive of all their chats.
+
+**Account detection:** `detectOrgAndAccount()` in `background.js` — hits `/organizations` for orgId, then probes `/account` for email. Falls back to orgName or truncated orgId for display.
+
+**Account registry** (`chrome.storage.local` key: `accountRegistry`):
+```json
+{
+  "[orgId]": {
+    "orgId": "...",
+    "email": "user@gmail.com",
+    "orgName": "Personal",
+    "firstSeen": 1234567890,
+    "sweepDone": true,
+    "sweepCompletedAt": 1234567890,
+    "convCount": 200
+  }
+}
+```
+
+**Library** (`chrome.storage.local` key: `library`):
+```json
+{
+  "[orgId]": {
+    "[convUuid]": {
+      "uuid": "...",
+      "name": "Conversation title",
+      "created_at": "...",
+      "updated_at": "...",
+      "messages": [...],
+      "fetchedAt": 1234567890
+    }
+  }
+}
+```
+
+**Sweep cursor** (`chrome.storage.local` key: `sweepCursor`): Maps orgId → array of already-fetched UUIDs. Allows resuming interrupted sweeps without re-fetching.
+
+**Sweep flow:** `sweepAccount` action in `background.js` — fetches full conversation list, skips already-cached UUIDs, fetches remaining in batches of 20 with 3-slot concurrency, persists after each batch. Emits `sweepProgress` messages for popup live updates.
+
+**Export:** `exportLibrary` action — dumps all accounts' libraries as JSONL (one JSON object per line, each embedding orgId + account email/name). Output file: `claudette-library-YYYY-MM-DD.jsonl`. This is the corpus input for the standalone categorization script.
+
+**Popup UI:** Library section shows current account label, Sweep button with live progress bar, scrollable account history list (email, conv count, sweep date, clear button), and Export full library button.
+
+**`/account` endpoint:** Probed at sweep time for email. May return `{ email_address, email }` or fail — failure is silently caught, display falls back to orgName.
 
 ---
 

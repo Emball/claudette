@@ -231,6 +231,38 @@
   </div>
 
   <div class="divider"></div>
+  <div class="section-label">Library</div>
+
+  <div class="row" id="lib-account-row">
+    <span class="label" id="lib-account-label" style="color:#7a7a7a;font-size:11px;">Detecting account…</span>
+  </div>
+
+  <div class="row">
+    <button id="btn-sweep" style="
+      flex:1; padding:5px 0; background:#2a3a2a; border:1px solid #3a5a3a;
+      color:#a8c8a8; border-radius:5px; cursor:pointer; font-size:11px;
+      font-weight:500; transition:background 0.15s;
+    ">⬇ Sweep this account</button>
+  </div>
+
+  <div id="sweep-progress-section" style="display:none; margin-top:4px;">
+    <div class="progress-label" id="sweep-prog-label">Starting sweep…</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="sweep-prog-fill" style="background:#5a8a5a;"></div>
+    </div>
+  </div>
+
+  <div id="lib-accounts-list" style="margin-top:6px; max-height:120px; overflow-y:auto;"></div>
+
+  <div class="row" style="margin-top:4px; gap:4px;">
+    <button id="btn-export-lib" style="
+      flex:1; padding:4px 0; background:#252525; border:1px solid #333;
+      color:#8a8a8a; border-radius:5px; cursor:pointer; font-size:10px;
+      transition:background 0.15s;
+    ">↓ Export full library (JSONL)</button>
+  </div>
+
+  <div class="divider"></div>
   <div class="section-label">Tweaks</div>
 
   <div class="row">
