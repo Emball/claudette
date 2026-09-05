@@ -43,7 +43,20 @@ async function fetchConversation(orgId, convId) {
 }
 
 async function fetchAllConversations(orgId) {
-  return apiFetch(`/organizations/${orgId}/chat_conversations`);
+  // Confirmed via probe 2026-09-04: offset-based, 50/page, no total-count header.
+  // Stop condition: page returns fewer than 50 items.
+  const PAGE_SIZE = 50;
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const page = await apiFetch(
+      `/organizations/${orgId}/chat_conversations?limit=${PAGE_SIZE}&offset=${offset}`
+    );
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return all;
 }
 
 async function fetchProjects(orgId) {
