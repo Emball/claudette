@@ -19,6 +19,8 @@ The repo is public. The extension is not on the Chrome Web Store — install is 
 
 **Investigate before implementing:** Claude.ai is a closed, rapidly-evolving target. Never write code based on assumptions about how it works internally. Before implementing anything that touches Claude.ai's UI, APIs, or browser behavior, the actual mechanism must be confirmed first — via DevTools (Network tab, WebSocket messages, Console, Initiator chain), console instrumentation snippets, or direct observation. State what is confirmed and what is still unknown before writing a line of extension code. A wrong guess that gets committed costs more than taking the time to look first. This applies especially to: STT/mic behavior, DOM structure, API endpoints, WebSocket protocols, and any browser API Claude.ai may or may not be using.
 
+**API discovery procedure:** When a Claude.ai API endpoint is needed but its existence or response shape is unknown, the procedure is: (1) flag it explicitly — "I don't know if this endpoint exists or what it returns"; (2) write a minimal probe snippet the user can run in the DevTools console to observe the real response; (3) wait for the actual result before writing any production code that depends on it. Do not write speculative code with a silent try/catch that obscures failures — that turns unknown unknowns invisible. If speculative code is committed before an endpoint is confirmed, the uncertainty must be noted in the commit message and in AGENTS.md.
+
 ---
 
 ## File Structure
