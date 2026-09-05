@@ -236,22 +236,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         registry[orgId].sweepDone = false;
         await chrome.storage.local.set({ accountRegistry: registry });
 
-        // Resumable cursor: skip already-fetched UUIDs for this org
-        const prevFetched = new Set(cursor[orgId] || []);
+        // Fetch in batches; write to library as we go
+        const stored2 = await chrome.storage.local.get('library');
+        const library = stored2.library || {};
+        if (!library[orgId]) library[orgId] = {};
+
+        // Resumable cursor: only skip UUIDs that are BOTH in the cursor AND
+        // actually present in the library. Cursor-only entries (e.g. from a
+        // failed or pre-fix sweep) get re-fetched so nothing is silently lost.
+        const prevFetched = new Set(
+          (cursor[orgId] || []).filter(id => !!library[orgId][id])
+        );
         const pending = allConvs.map(c => c.uuid).filter(id => !prevFetched.has(id));
 
-        console.log(`[bg] sweep ${orgId}: ${allConvs.length} total, ${pending.length} to fetch`);
+        console.log(`[bg] sweep ${orgId}: ${allConvs.length} total, ${pending.length} to fetch, ${prevFetched.size} already cached`);
 
         // Notify popup of sweep start
         chrome.runtime.sendMessage({
           action: 'sweepProgress', orgId,
           done: prevFetched.size, total: allConvs.length, phase: 'fetching'
         }).catch(() => {});
-
-        // Fetch in batches; write to library as we go
-        const stored2 = await chrome.storage.local.get('library');
-        const library = stored2.library || {};
-        if (!library[orgId]) library[orgId] = {};
 
         const BATCH = 20;
         let fetched = prevFetched.size;
