@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.3.0.0**
+**Current version: 6.3.1.3**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -508,12 +508,14 @@ screenshot (score < 2):
       "name": "Conversation title",
       "created_at": "...",
       "updated_at": "...",
-      "messages": [...],
+      "messages_z": "<base64 DEFLATE-raw compressed JSON of slimmed message array>",
       "fetchedAt": 1234567890
     }
   }
 }
 ```
+
+Messages are slimmed before storage (`slimMessage()` in `background.js`): base64 image blobs, `extracted_content`, `thumbnail_asset`, and raw file bytes are dropped. Image attachment `preview_path` stores the URL path only (query string stripped) — signed CDN params expire, but paths are stable. A future "refresh image links" sweep can re-fetch them. Decompress with `decompress(entry.messages_z)` before use.
 
 **Sweep cursor** (`chrome.storage.local` key: `sweepCursor`): Maps orgId → array of already-fetched UUIDs. Allows resuming interrupted sweeps without re-fetching.
 

@@ -63,6 +63,74 @@ async function fetchProjects(orgId) {
   return apiFetch(`/organizations/${orgId}/projects`);
 }
 
+// Strip a raw API conversation down to only what the library needs.
+// Drops: base64 image data, extracted_content blobs, thumbnails, raw file bytes.
+// Keeps: text, tool titles, artifact content, image URL paths (no query strings).
+function slimMessage(msg) {
+  const slimContent = (msg.content || []).map(block => {
+    if (block.type === 'text')     return { type: 'text', text: block.text || '' };
+    if (block.type === 'thinking') return { type: 'thinking', thinking: block.thinking || '' };
+    if (block.type === 'tool_use') return { type: 'tool_use', name: block.name, title: block.title || block.name };
+    if (block.type === 'tool_result') return null;
+    if (block.type === 'artifact')
+      return { type: 'artifact', title: block.title, language: block.language || null, content: block.content || '' };
+    if (block.type === 'document')
+      return { type: 'document', name: block.name || block.document?.name || null };
+    if (block.type === 'context')
+      return { type: 'context', body: block.body || block.content || block.text || '' };
+    return null;
+  }).filter(Boolean);
+
+  const slimAttachment = a => {
+    if (!a || a.success === false) return null;
+    const rawUrl = a.preview_asset?.url || a.preview_url || null;
+    const previewPath = rawUrl ? rawUrl.replace(/\?.*$/, '') : null;
+    return {
+      file_name:    a.file_name || null,
+      file_kind:    a.file_kind || null,
+      file_type:    a.file_type || null,
+      preview_path: previewPath,
+    };
+  };
+
+  const attachments = [
+    ...(msg.attachments || []).map(slimAttachment),
+    ...(msg.files       || []).map(slimAttachment),
+  ].filter(Boolean);
+
+  return {
+    uuid:                msg.uuid,
+    sender:              msg.sender,
+    parent_message_uuid: msg.parent_message_uuid || null,
+    created_at:          msg.created_at,
+    content:             slimContent,
+    attachments,
+  };
+}
+
+// Compress a JS value to a base64 string using DEFLATE-raw (best text ratio).
+async function compress(value) {
+  const json   = JSON.stringify(value);
+  const bytes  = new TextEncoder().encode(json);
+  const cs     = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const compressed = await new Response(cs.readable).arrayBuffer();
+  return btoa(String.fromCharCode(...new Uint8Array(compressed)));
+}
+
+async function decompress(b64) {
+  const bytes  = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const ds     = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  const out = await new Response(ds.readable).arrayBuffer();
+  return JSON.parse(new TextDecoder().decode(out));
+}
+
+
 // --- Concurrency queue ---
 // Fetches up to FETCH_CONCURRENCY conversations in parallel.
 // Pauses when estimated memory use crosses MEM_CEILING_MB.
@@ -285,13 +353,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           for (const r of batchResults) {
             if (r.success) {
               const meta = convIndex[r.convId] || {};
+              const rawMsgs = r.data.chat_messages || r.data.messages || [];
+              const slimmed = rawMsgs.map(slimMessage);
+              const compressed = await compress(slimmed);
               library[orgId][r.convId] = {
-                uuid: r.convId,
-                name: meta.name || '',
-                created_at: meta.created_at || null,
-                updated_at: meta.updated_at || null,
-                messages: r.data.chat_messages || r.data.messages || [],
-                fetchedAt: Date.now(),
+                uuid:        r.convId,
+                name:        meta.name || '',
+                created_at:  meta.created_at || null,
+                updated_at:  meta.updated_at || null,
+                messages_z:  compressed,
+                fetchedAt:   Date.now(),
               };
               prevFetched.add(r.convId);
             }
