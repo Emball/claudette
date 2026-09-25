@@ -64,8 +64,8 @@ async function fetchProjects(orgId) {
 }
 
 // Strip a raw API conversation down to only what the library needs.
-// Drops: base64 image data, extracted_content blobs, thumbnails, raw file bytes.
-// Keeps: text, tool titles, artifact content, image URL paths (no query strings).
+// Drops: extracted_content blobs, tool_result blocks, thumbnail fields, unused metadata.
+// Keeps: text, tool titles, artifact content, image URL paths (query string stripped — signed params expire).
 function slimMessage(msg) {
   const slimContent = (msg.content || []).map(block => {
     if (block.type === 'text')     return { type: 'text', text: block.text || '' };
