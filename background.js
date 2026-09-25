@@ -116,8 +116,14 @@ async function compress(value) {
   const writer = cs.writable.getWriter();
   writer.write(bytes);
   writer.close();
-  const compressed = await new Response(cs.readable).arrayBuffer();
-  return btoa(String.fromCharCode(...new Uint8Array(compressed)));
+  const compressed = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+  // Chunk the btoa conversion — spreading large typed arrays blows the call stack.
+  let binary = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < compressed.length; i += CHUNK) {
+    binary += String.fromCharCode(...compressed.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 async function decompress(b64) {
