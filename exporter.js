@@ -86,8 +86,9 @@ async function classifyAndRouteFile(file, images, settings, imageIndex, imageTot
     : null;
 
   const fname = file.file_name || 'image';
+  const imgLabel = settings.ocr ? `OCR: ${fname}` : `Image: ${fname}`;
 
-  reportProgress('image', imageIndex, imageTotal, fname);
+  reportProgress('image', imageIndex, imageTotal, imgLabel);
 
   if (!previewUrl)
     return `*<Screenshot: ${fname}>*\n\`\`\`\nno preview available\n\`\`\``;

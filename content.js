@@ -97,7 +97,7 @@ window.cceProgress = function(phase, current, total, label) {
   _progressPct = pct;
 
   if (phase === 'image') {
-    _progressLabel = `OCR: ${label} (${current + 1}/${total})`;
+    _progressLabel = `${label} (${current + 1}/${total})`;
   } else if (phase === 'message') {
     _progressLabel = `Processing messages… (${current + 1}/${total})`;
   } else if (phase === 'conv') {
