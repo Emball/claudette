@@ -202,7 +202,7 @@ const ImageClassifier = {
   async classify(previewUrl, width, height, index, settings = {}) {
     const s = {
       images: settings.images ?? true,
-      ocr:    settings.ocr   ?? true,
+      ocr:    settings.ocr   ?? false,
       zip:    settings.zip   ?? true,
     };
     return classifyFromUrl(previewUrl, width, height, index, s);
@@ -212,7 +212,7 @@ const ImageClassifier = {
   async classifyAll(imageList, settings = {}) {
     const s = {
       images: settings.images ?? true,
-      ocr:    settings.ocr   ?? true,
+      ocr:    settings.ocr   ?? false,
       zip:    settings.zip   ?? true,
     };
     console.log(`[classifier] classifyAll: ${imageList.length} images, pool=${OCR_POOL_SIZE}`);
