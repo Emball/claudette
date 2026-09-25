@@ -236,11 +236,16 @@ chrome.runtime.onMessage.addListener((msg) => {
 btnExportLib.addEventListener('click', () => {
   btnExportLib.textContent = '…exporting';
   btnExportLib.disabled = true;
-  chrome.runtime.sendMessage({ action: 'exportLibrary' }, resp => {
-    btnExportLib.textContent = '↓ Export full library (JSONL)';
-    btnExportLib.disabled = false;
-    if (resp?.success) flash(`Exported ${resp.lineCount} chats`);
-    else flash('Export failed');
+  // Export runs in content script context (needs DOM + URL.createObjectURL)
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    const tabId = tabs[0]?.id;
+    if (!tabId) { flash('No active tab'); btnExportLib.disabled = false; btnExportLib.textContent = '↓ Export full library (ZIP)'; return; }
+    chrome.tabs.sendMessage(tabId, { action: 'exportLibraryZip' }, resp => {
+      btnExportLib.textContent = '↓ Export full library (ZIP)';
+      btnExportLib.disabled = false;
+      if (resp?.success) flash(`Exported ${resp.total} chats`);
+      else flash('Export failed — open a claude.ai tab first');
+    });
   });
 });
 

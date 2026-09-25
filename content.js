@@ -484,3 +484,25 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (!('sttPersist' in changes)) return;
   dispatchSttPersist(!!changes.sttPersist.newValue);
 });
+
+// ── Library export (triggered from popup) ────────────────────────────────────
+// Popup can't call exportBulk directly (no DOM/URL.createObjectURL).
+// It sends exportLibraryZip here; we fetch all convs from bg and run exportBulk.
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.action !== 'exportLibraryZip') return;
+  (async () => {
+    try {
+      await ensureLibs();
+      const settings = await loadContentSettings();
+      const resp = await sendToBackground('exportLibrary', {});
+      if (!resp?.success) throw new Error(resp?.error || 'exportLibrary failed');
+      await exportBulk(resp.results, settings);
+      sendResponse({ success: true, total: resp.total });
+    } catch (err) {
+      console.error('[cce] exportLibraryZip failed:', err.message);
+      sendResponse({ success: false, error: err.message });
+    }
+  })();
+  return true;
+});

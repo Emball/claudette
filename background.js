@@ -411,6 +411,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // Returns all library conversations decompressed, ready for exportBulk in content script.
   if (request.action === 'exportLibrary') {
     (async () => {
       try {
@@ -418,32 +419,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const library  = stored.library  || {};
         const registry = stored.accountRegistry || {};
 
-        // Build JSONL: one line per conversation, with account metadata embedded
-        const lines = [];
+        const results = [];
         for (const [orgId, convMap] of Object.entries(library)) {
           const acct = registry[orgId] || { orgId };
           for (const conv of Object.values(convMap)) {
-            lines.push(JSON.stringify({
-              orgId,
-              accountEmail: acct.email || null,
-              accountName:  acct.orgName || null,
-              ...conv,
-            }));
+            let messages = [];
+            if (conv.messages_z) {
+              try { messages = await decompress(conv.messages_z); } catch (_) {}
+            }
+            // Reconstruct a conv shape compatible with exportBulk / conversationToText
+            results.push({
+              success: true,
+              data: {
+                uuid:          conv.uuid,
+                name:          conv.name || conv.uuid,
+                created_at:    conv.created_at || null,
+                updated_at:    conv.updated_at || null,
+                chat_messages: messages,
+                // No current_leaf_message_uuid stored — exporter falls back to flat order
+                _accountEmail: acct.email || null,
+                _accountName:  acct.orgName || null,
+                _orgId:        orgId,
+              },
+            });
           }
         }
 
-        // URL.createObjectURL unavailable in service workers — use data URL instead.
-        const jsonl   = lines.join('\n');
-        const encoded = btoa(unescape(encodeURIComponent(jsonl)));
-        const url     = `data:application/jsonl;base64,${encoded}`;
-        const ts      = new Date().toISOString().slice(0, 10);
-        await chrome.downloads.download({
-          url,
-          filename: `claudette-library-${ts}.jsonl`,
-          saveAs: false,
+        // Sort by created_at ascending so the ZIP is in chronological order
+        results.sort((a, b) => {
+          const ta = a.data.created_at || '';
+          const tb = b.data.created_at || '';
+          return ta < tb ? -1 : ta > tb ? 1 : 0;
         });
 
-        sendResponse({ success: true, lineCount: lines.length });
+        sendResponse({ success: true, results, total: results.length });
       } catch (err) {
         console.error('[bg] exportLibrary error:', err);
         sendResponse({ success: false, error: err.message });
