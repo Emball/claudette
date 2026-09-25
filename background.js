@@ -300,7 +300,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
           // Persist library + cursor after each batch
           cursor[orgId] = [...prevFetched];
-          await chrome.storage.local.set({ library, sweepCursor: cursor });
+          try {
+            await chrome.storage.local.set({ library, sweepCursor: cursor });
+          } catch (storageErr) {
+            console.error('[bg] sweep storage write failed (quota?):', storageErr.message);
+            throw storageErr;
+          }
 
           chrome.runtime.sendMessage({
             action: 'sweepProgress', orgId,

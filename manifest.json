@@ -5,6 +5,7 @@
   "description": "Export Claude.ai chats as Markdown or plain text with images.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "downloads",
     "webRequest",
     "scripting",
