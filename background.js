@@ -432,15 +432,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
         }
 
-        const blob = new Blob([lines.join('\n')], { type: 'application/jsonl' });
-        const url  = URL.createObjectURL(blob);
-        const ts   = new Date().toISOString().slice(0, 10);
+        // URL.createObjectURL unavailable in service workers — use data URL instead.
+        const jsonl   = lines.join('\n');
+        const encoded = btoa(unescape(encodeURIComponent(jsonl)));
+        const url     = `data:application/jsonl;base64,${encoded}`;
+        const ts      = new Date().toISOString().slice(0, 10);
         await chrome.downloads.download({
           url,
           filename: `claudette-library-${ts}.jsonl`,
           saveAs: false,
         });
-        URL.revokeObjectURL(url);
 
         sendResponse({ success: true, lineCount: lines.length });
       } catch (err) {
