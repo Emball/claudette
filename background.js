@@ -85,12 +85,21 @@ function slimMessage(msg) {
     if (!a || a.success === false) return null;
     const rawUrl = a.preview_asset?.url || a.preview_url || null;
     const previewPath = rawUrl ? rawUrl.replace(/\?.*$/, '') : null;
-    return {
+    const slim = {
       file_name:    a.file_name || null,
       file_kind:    a.file_kind || null,
       file_type:    a.file_type || null,
       preview_path: previewPath,
     };
+    // Preserve image dimensions for classifier (no blob stored, just metadata)
+    if (a.preview_asset?.image_width)  slim.image_width  = a.preview_asset.image_width;
+    if (a.preview_asset?.image_height) slim.image_height = a.preview_asset.image_height;
+    // Preserve extracted text for non-image attachments (documents, code files, etc.)
+    if (a.file_kind !== 'image') {
+      const text = a.extracted_content || a.text || a.content || '';
+      if (text) slim.extracted_content = text;
+    }
+    return slim;
   };
 
   const attachments = [

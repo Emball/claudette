@@ -79,7 +79,8 @@ function inferLang(filename, content) {
 // --- Image routing ---
 
 async function classifyAndRouteFile(file, images, settings, imageIndex, imageTotal) {
-  const rawUrl = file.preview_asset?.url || file.preview_url || null;
+  // Support both live API response (preview_asset.url) and slimmed library cache (preview_path)
+  const rawUrl = file.preview_asset?.url || file.preview_url || file.preview_path || null;
   const previewUrl = rawUrl
     ? (rawUrl.startsWith('http') ? rawUrl : `https://claude.ai${rawUrl}`)
     : null;
@@ -91,8 +92,9 @@ async function classifyAndRouteFile(file, images, settings, imageIndex, imageTot
   if (!previewUrl)
     return `*<Screenshot: ${fname}>*\n\`\`\`\nno preview available\n\`\`\``;
 
-  const width  = file.preview_asset?.image_width;
-  const height = file.preview_asset?.image_height;
+  // Dimensions may come from preview_asset (live) or from stored image_width/height (library cache)
+  const width  = file.preview_asset?.image_width  || file.image_width  || null;
+  const height = file.preview_asset?.image_height || file.image_height || null;
 
   const result = await ImageClassifier.classify(
     previewUrl, width, height, images.length, settings
