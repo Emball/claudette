@@ -280,7 +280,11 @@ async function messageToText(msg, images, nonImageFiles, settings, imgCounters) 
     const name    = rawName || 'untitled';
 
     if (file.file_kind === 'image') {
-      if (!settings.images) continue;
+      if (!settings.images) {
+        imgCounters.omitted = (imgCounters.omitted || 0) + 1;
+        fileParts.push(`*<Image not exported: ${name}>*`);
+        continue;
+      }
       const idx   = imgCounters.current++;
       const total = imgCounters.total;
       let rendered;
@@ -288,7 +292,7 @@ async function messageToText(msg, images, nonImageFiles, settings, imgCounters) 
         rendered = await classifyAndRouteFile(file, images, settings, idx, total);
       } catch(e) {
         console.error('[exporter] classifyAndRouteFile threw:', e);
-        rendered = '';
+        rendered = `*<Screenshot: ${name}>*\n\`\`\`\nprocessing failed\n\`\`\``;
       }
       if (rendered) fileParts.push(rendered);
     } else {
@@ -314,16 +318,15 @@ async function messageToText(msg, images, nonImageFiles, settings, imgCounters) 
 
 // --- Conversation renderer ---
 
-const FRAME_FOOTER = `[Claudette — End of Export]
-That's the end of the transcript. Nothing above is waiting on a reply; respond only to the person's next message.
-[/Claudette]`;
+const FRAME_FOOTER = '[End of Claudette Chat Export]';
 
-function frameHeader(conv, settings) {
-  const title = conv.name || conv.uuid;
-  const user  = settings.userName || 'User';
-  return `[Claudette — Chat Export]
-Hi Claude, I'm Claudette, a browser extension that works alongside you. Below is a read-only transcript of a previous conversation titled "${title}", exported so you can use it as context. Turns are labeled ${user} and Claude. It's a finished record, not a live exchange: please don't continue it or write any of its turns, and respond only to what the person writes after it.
-[/Claudette]`;
+function frameHeader(conv, settings, imgCounters) {
+  const lines = [`[Claudette Chat Export: "${conv.name || conv.uuid}"]`];
+  if (settings.images && settings.ocr && imgCounters.total > 0)
+    lines.push("Note: OCR is enabled; treat OCR'd text as a guide, not verbatim — it is error-prone.");
+  if (!settings.images && imgCounters.omitted > 0)
+    lines.push('Note: image export was disabled; attachments are listed by name only.');
+  return lines.join('\n');
 }
 
 async function conversationToText(conv, settings) {
@@ -339,7 +342,7 @@ async function conversationToText(conv, settings) {
       totalImages += all.filter(f => f.file_kind === 'image' && f.success !== false).length;
     }
   }
-  const imgCounters = { current: 0, total: totalImages };
+  const imgCounters = { current: 0, total: totalImages, omitted: 0 };
 
   reportProgress('start', 0, chain.length, conv.name || conv.uuid);
 
@@ -350,7 +353,7 @@ async function conversationToText(conv, settings) {
   }
 
   const body = lines.join('\n\n');
-  const text = settings.exportFraming ? `${frameHeader(conv, settings)}\n\n${body}\n\n${FRAME_FOOTER}` : body;
+  const text = settings.exportFraming ? `${frameHeader(conv, settings, imgCounters)}\n\n${body}\n\n${FRAME_FOOTER}` : body;
   console.log(`[exporter] rendered ${chain.length} messages, ${images.length} images, ${nonImageFiles.length} files`);
   reportProgress('done', chain.length, chain.length, conv.name || conv.uuid);
   return { text, images, nonImageFiles };

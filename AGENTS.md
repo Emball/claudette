@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.4.1.0**
+**Current version: 6.4.2.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -13,7 +13,7 @@ The repo is public. The extension is not on the Chrome Web Store — install is 
 
 ## Design Principles
 
-**Claudette voice:** Any time Claudette communicates with Claude programmatically — session chaining injections, background compression prompts, or any other automated Claude interaction — it speaks in first person and introduces itself naturally. The goal is that Claude and Claudette feel like companion apps, not like a script hitting an API. The user never sees these messages; they're a back-channel between the two products.
+**Claudette voice:** Any time Claudette communicates with Claude programmatically — session chaining injections, background compression prompts, or any other automated Claude interaction — it speaks in first person and introduces itself naturally. The goal is that Claude and Claudette feel like companion apps, not like a script hitting an API. The user never sees these messages; they're a back-channel between the two products. Export framing is the exception: a terse labeled marker with no self-introduction.
 
 **No silent failures:** All modules log their processes. No errors silently swallowed.
 
@@ -355,7 +355,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 
 **Message labels:** `**{userName}:**` and `**Claude:**` bold inline, content follows on the same line. No line break between label and content. `userName` is a per-install setting (default `"User"`) so pasted transcripts use the account holder's actual name instead of the generic "User" — this prevents pattern-matching agents from confusing themselves and hallucinating both sides of long transcript chains.
 
-**Framing:** with `exportFraming` on, `conversationToText` wraps the transcript in a first-person Claudette header (names the conversation and the speaker labels, states it is a read-only record not to be continued) and a closing footer. Single, bulk, and clipboard exports all pass through it.
+**Framing:** with `exportFraming` on, `conversationToText` wraps the transcript in `[Claudette Chat Export: "title"]` and `[End of Claudette Chat Export]`. The header adds a `Note:` line when OCR is enabled and the chat has images (OCR text is error-prone), and when image export is off and attachments were omitted. Omitted images render as `*<Image not exported: name>*`; images that fail processing render as a Screenshot label with `processing failed`. Single, bulk, and clipboard exports all pass through it.
 
 **Action/tool headers:** `> **Title of action**` — bold blockquote. Used for tool calls, bash commands, file writes, web searches. Title is whatever Claude generated for that action.
 
@@ -374,6 +374,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | Pasted text | `*<Pasted>*` + fenced block |
 | Photo (zip=on) | `*<Photo: name.jpg>*` + `![name.jpg](./images/name.jpg)` |
 | Photo (zip=off) | `*<Photo: name.jpg>*` only |
+| Image (images=off) | `*<Image not exported: name>*` |
 | Tool/action header | `> **Action title**` |
 | Tool call content | fenced input, then `*<Output>*` + fenced output |
 | Thinking | `> *content*` |
