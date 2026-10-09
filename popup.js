@@ -5,6 +5,7 @@ const DEFAULTS = {
   thinking:      false,
   toolSummaries: true,
   includeBash:   false,
+  toolContent:   false,
   images:        true,
   ocr:           false,
   zip:           true,
@@ -25,6 +26,7 @@ const btnTxt      = document.getElementById('btn-txt');
 const togThink    = document.getElementById('tog-thinking');
 const togTools    = document.getElementById('tog-tools');
 const togBash     = document.getElementById('tog-bash');
+const togToolContent = document.getElementById('tog-toolcontent');
 const togImages   = document.getElementById('tog-images');
 const togOcr      = document.getElementById('tog-ocr');
 const togZip      = document.getElementById('tog-zip');
@@ -32,6 +34,7 @@ const togZipFiles = document.getElementById('tog-zip-files');
 const subOcr      = document.getElementById('sub-ocr');
 const subZip      = document.getElementById('sub-zip');
 const subBash     = document.getElementById('sub-bash');
+const subToolContent = document.getElementById('sub-toolcontent');
 const inpUserName = document.getElementById('inp-username');
 const status      = document.getElementById('status');
 const progLabel   = document.getElementById('prog-label');
@@ -47,8 +50,9 @@ function updateSubRows(imagesOn) {
   subZip.classList.toggle('disabled', !imagesOn);
 }
 
-function updateBashRow(toolsOn) {
+function updateToolRows(toolsOn) {
   subBash.classList.toggle('disabled', !toolsOn);
+  subToolContent.classList.toggle('disabled', !toolsOn);
 }
 
 function applySettings(s) {
@@ -57,13 +61,14 @@ function applySettings(s) {
   togThink.checked     = s.thinking;
   togTools.checked     = s.toolSummaries;
   togBash.checked      = s.includeBash;
+  togToolContent.checked = s.toolContent;
   togImages.checked    = s.images;
   togOcr.checked        = s.ocr;
   togZip.checked        = s.zip;
   togZipFiles.checked   = s.zipFiles;
   inpUserName.value     = s.userName === 'User' ? '' : s.userName;
   updateSubRows(s.images);
-  updateBashRow(s.toolSummaries);
+  updateToolRows(s.toolSummaries);
 }
 
 chrome.storage.sync.get({ ...DEFAULTS, ...SYNC_EXTRA_DEFAULTS }, (s) => {
@@ -97,8 +102,9 @@ function makeToggle(el, key, onChange) {
 }
 
 makeToggle(togThink,    'thinking');
-makeToggle(togTools,    'toolSummaries', updateBashRow);
+makeToggle(togTools,    'toolSummaries', updateToolRows);
 makeToggle(togBash,     'includeBash');
+makeToggle(togToolContent, 'toolContent');
 makeToggle(togImages,   'images', updateSubRows);
 makeToggle(togOcr,      'ocr');
 makeToggle(togZip,      'zip');

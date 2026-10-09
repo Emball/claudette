@@ -157,6 +157,7 @@ const CONTENT_DEFAULTS = {
   thinking:      false,
   toolSummaries: true,
   includeBash:   false,
+  toolContent:   false,
   images:        true,
   ocr:           false,
   zip:           true,

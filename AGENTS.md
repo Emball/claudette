@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.3.7.0**
+**Current version: 6.4.0.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -167,36 +167,39 @@ All discovered content block types, their fields, and how we render them:
 
 **`thinking`**
 ```json
-{ "type": "thinking", "thinking": "internal reasoning content" }
+{ "type": "thinking", "thinking": "", "summaries": [{ "summary": "..." }], "thinking_hidden": true, "truncated": true, "hidden": false, "cut_off": false }
 ```
-- Extended reasoning blocks; skipped by default (toggle: include thinking)
-- Render as `> *italic blockquote*` when enabled
+- Raw reasoning is not delivered: `thinking` is an empty string and `thinking_hidden` is true. The only content is `summaries[].summary`; what generates the summaries is unknown.
+- Skipped by default (toggle: include thinking). When enabled, each summary renders as `> *italic blockquote*`; non-empty raw `thinking` text takes precedence if ever present.
 
 **`tool_use`**
 ```json
 {
   "type": "tool_use",
-  "name": "web_search",
-  "title": "Search the web",
-  "input": { "query": "search terms" },
-  "id": "tool-call-uuid"
+  "id": "toolu_...",
+  "name": "bash_tool",
+  "input": { "command": "...", "description": "..." },
+  "message": "...", "display_content": "...", "integration_name": "...", "icon_name": "...", "tool_origin": "..."
 }
 ```
-- `title` is the human-readable label Claude generates — use this, not `name`, as the display header
-- Toggle: include tool call summaries (`toolSummaries`, default on). When on, renders **only** `> **title**` — `input` and any paired `tool_result` are never rendered, regardless of settings. This is intentional: full tool I/O (especially bash) can run to millions of characters and pollutes pasted transcripts.
-- Sub-toggle: include bash calls (`includeBash`, default off, only relevant when `toolSummaries` is on). When off, any `tool_use` whose `name` contains `bash` is skipped entirely, even as a summary line.
+- Bash blocks carry no `title` key, so the renderer's `title || name` falls back to `name`. Values of `message` and `display_content` are unprobed.
+- Toggle: include tool call summaries (`toolSummaries`, default on). Renders `> **title**`.
+- Sub-toggle: include bash calls (`includeBash`, default off, requires `toolSummaries`). When off, any `tool_use` or `tool_result` whose `name` contains `bash` is skipped entirely.
+- Sub-toggle: include tool call content (`toolContent`, default off, requires `toolSummaries`). Also renders the `input` (`input.command` for bash, JSON otherwise) and the paired `tool_result` output, each capped at `TOOL_OUTPUT_MAX` (4000 chars) with a truncation marker — full tool I/O can run to millions of characters.
 
 **`tool_result`**
 ```json
 {
   "type": "tool_result",
-  "tool_use_id": "tool-call-uuid",
-  "content": [
-    { "type": "text", "text": "result content" }
-  ]
+  "tool_use_id": "toolu_...",
+  "name": "bash_tool",
+  "content": [{ "type": "text", "text": "{\"returncode\":0,\"stdout\":\"...\",\"stderr\":\"\"}" }]
 }
 ```
-- Never rendered. Only the paired `tool_use` title is shown (see above).
+- Also carries `is_error`, `meta`, `display_content`, `integration_name`, `icon_name`, `tool_origin`.
+- Sits in the assistant message's `content` next to its `tool_use`; pairs by `tool_use_id` and carries its own `name`.
+- Bash: `content[0].text` is a JSON string `{returncode, stdout, stderr}`. Result shapes of other tools are unprobed.
+- Rendered only when `toolContent` is on: `*<Output>*` + fenced block (stdout, then `[stderr]`, then `[returncode N]` if nonzero). Non-JSON text renders raw.
 
 **`artifact`**
 ```json
@@ -370,6 +373,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | Photo (zip=on) | `*<Photo: name.jpg>*` + `![name.jpg](./images/name.jpg)` |
 | Photo (zip=off) | `*<Photo: name.jpg>*` only |
 | Tool/action header | `> **Action title**` |
+| Tool call content | fenced input, then `*<Output>*` + fenced output |
 | Thinking | `> *content*` |
 | Artifact | fenced block, language tag, filename as first-line comment |
 
@@ -385,8 +389,10 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | Key | Default | Description |
 |---|---|---|
 | `format` | `'md'` | `'md'` or `'txt'` |
-| `thinking` | `false` | Include extended thinking blocks |
-| `tools` | `true` | Include tool calls and output |
+| `thinking` | `false` | Include thinking summaries |
+| `toolSummaries` | `true` | Include tool call title lines |
+| `includeBash` | `false` | Include bash tool calls (requires `toolSummaries`) |
+| `toolContent` | `false` | Include tool call input and output (requires `toolSummaries`) |
 | `images` | `true` | Process images at all |
 | `ocr` | `false` | Run Tesseract OCR on screenshots — **off by default** (slow) |
 | `zip` | `true` | Package image files into ZIP (sub-toggle, requires `images: true`) |
@@ -515,7 +521,7 @@ screenshot (score < 2):
 }
 ```
 
-Messages are slimmed before storage (`slimMessage()` in `background.js`): base64 image blobs, `thumbnail_asset`, and raw file bytes are dropped. Image attachment `preview_path` stores the URL path only (query string stripped); `image_width` and `image_height` are preserved for the classifier. Non-image file attachments keep `extracted_content` so document text survives to export. Decompress with `decompress(entry.messages_z)` before use.
+Messages are slimmed before storage (`slimMessage()` in `background.js`): base64 image blobs, `thumbnail_asset`, and raw file bytes are dropped. Image attachment `preview_path` stores the URL path only (query string stripped); `image_width` and `image_height` are preserved for the classifier. Non-image file attachments keep `extracted_content` so document text survives to export. Decompress with `decompress(entry.messages_z)` before use. Thinking blocks keep `summaries`; `tool_result` blocks and tool inputs are dropped, so `toolContent` has no effect on library data.
 
 **Sweep cursor** (`chrome.storage.local` key: `sweepCursor`): Maps orgId → array of already-fetched UUIDs. Allows resuming interrupted sweeps without re-fetching.
 

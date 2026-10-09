@@ -5,12 +5,46 @@ const EXPORTER_DEFAULTS = {
   thinking:      false,
   toolSummaries: true,
   includeBash:   false,
+  toolContent:   false,
   images:        true,
   ocr:           false,
   zip:           true,
   zipFiles:      true,
   userName:      'User',
 };
+
+const TOOL_OUTPUT_MAX = 4000;
+
+function capText(text) {
+  if (text.length <= TOOL_OUTPUT_MAX) return text;
+  return `${text.slice(0, TOOL_OUTPUT_MAX)}\n[truncated ${text.length - TOOL_OUTPUT_MAX} chars]`;
+}
+
+function toolInputText(input) {
+  if (!input || typeof input !== 'object') return '';
+  if (typeof input.command === 'string') return input.command;
+  return JSON.stringify(input, null, 2);
+}
+
+function toolResultText(block) {
+  const raw = (Array.isArray(block.content) ? block.content : [])
+    .map(c => (c && typeof c.text === 'string' ? c.text : ''))
+    .join('\n');
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && 'stdout' in parsed) {
+      const out = [];
+      if (parsed.stdout) out.push(parsed.stdout);
+      if (parsed.stderr) out.push(`[stderr]\n${parsed.stderr}`);
+      if (parsed.returncode) out.push(`[returncode ${parsed.returncode}]`);
+      return out.join('\n').trim();
+    }
+  } catch (e) {
+    console.log('[exporter] tool_result text is not JSON, rendering raw');
+  }
+  return raw;
+}
 
 // Returns a backtick fence string safe to wrap `content` in.
 // Finds the longest run of backticks in the content and uses one more (min 3).
@@ -137,7 +171,14 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
     if (block.type === 'thinking') {
       if (settings.thinking) {
         const thought = (block.thinking || block.text || '').trim();
-        if (thought) parts.push(`> *${thought}*`);
+        if (thought) {
+          parts.push(`> *${thought}*`);
+        } else if (Array.isArray(block.summaries)) {
+          for (const s of block.summaries) {
+            const t = ((s && s.summary) || '').trim();
+            if (t) parts.push(`> *${t}*`);
+          }
+        }
       }
       continue;
     }
@@ -159,11 +200,18 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
       if (!settings.includeBash && name.toLowerCase().includes('bash')) continue;
       const title = block.title || name;
       parts.push(`> **${title}**`);
+      if (settings.toolContent) {
+        const input = capText(toolInputText(block.input).trim());
+        if (input) { const f = safeFence(input); parts.push(`${f}\n${input}\n${f}`); }
+      }
       continue;
     }
 
     if (block.type === 'tool_result') {
-      // Full tool_result content is never rendered — summaries only include the tool_use title.
+      if (!settings.toolSummaries || !settings.toolContent) continue;
+      if (!settings.includeBash && (block.name || '').toLowerCase().includes('bash')) continue;
+      const output = capText(toolResultText(block).trim());
+      if (output) { const f = safeFence(output); parts.push(`*<Output>*\n${f}\n${output}\n${f}`); }
       continue;
     }
 

@@ -69,7 +69,7 @@ async function fetchProjects(orgId) {
 function slimMessage(msg) {
   const slimContent = (msg.content || []).map(block => {
     if (block.type === 'text')     return { type: 'text', text: block.text || '' };
-    if (block.type === 'thinking') return { type: 'thinking', thinking: block.thinking || '' };
+    if (block.type === 'thinking') return { type: 'thinking', thinking: block.thinking || '', summaries: block.summaries || [] };
     if (block.type === 'tool_use') return { type: 'tool_use', name: block.name, title: block.title || block.name };
     if (block.type === 'tool_result') return null;
     if (block.type === 'artifact')
