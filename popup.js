@@ -11,6 +11,7 @@ const DEFAULTS = {
   zip:           true,
   zipFiles:      true,
   userName:      'User',
+  exportFraming: true,
 };
 
 const LOCAL_DEFAULTS = {
@@ -26,6 +27,7 @@ const btnTxt      = document.getElementById('btn-txt');
 const togThink    = document.getElementById('tog-thinking');
 const togTools    = document.getElementById('tog-tools');
 const togBash     = document.getElementById('tog-bash');
+const togFraming  = document.getElementById('tog-framing');
 const togToolContent = document.getElementById('tog-toolcontent');
 const togImages   = document.getElementById('tog-images');
 const togOcr      = document.getElementById('tog-ocr');
@@ -61,6 +63,7 @@ function applySettings(s) {
   togThink.checked     = s.thinking;
   togTools.checked     = s.toolSummaries;
   togBash.checked      = s.includeBash;
+  togFraming.checked   = s.exportFraming;
   togToolContent.checked = s.toolContent;
   togImages.checked    = s.images;
   togOcr.checked        = s.ocr;
@@ -104,6 +107,7 @@ function makeToggle(el, key, onChange) {
 makeToggle(togThink,    'thinking');
 makeToggle(togTools,    'toolSummaries', updateToolRows);
 makeToggle(togBash,     'includeBash');
+makeToggle(togFraming,  'exportFraming');
 makeToggle(togToolContent, 'toolContent');
 makeToggle(togImages,   'images', updateSubRows);
 makeToggle(togOcr,      'ocr');

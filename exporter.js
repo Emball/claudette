@@ -11,6 +11,7 @@ const EXPORTER_DEFAULTS = {
   zip:           true,
   zipFiles:      true,
   userName:      'User',
+  exportFraming: true,
 };
 
 const TOOL_OUTPUT_MAX = 4000;
@@ -313,6 +314,18 @@ async function messageToText(msg, images, nonImageFiles, settings, imgCounters) 
 
 // --- Conversation renderer ---
 
+const FRAME_FOOTER = `[Claudette — End of Export]
+That's the end of the transcript. Nothing above is waiting on a reply; respond only to the person's next message.
+[/Claudette]`;
+
+function frameHeader(conv, settings) {
+  const title = conv.name || conv.uuid;
+  const user  = settings.userName || 'User';
+  return `[Claudette — Chat Export]
+Hi Claude, I'm Claudette, a browser extension that works alongside you. Below is a read-only transcript of a previous conversation titled "${title}", exported so you can use it as context. Turns are labeled ${user} and Claude. It's a finished record, not a live exchange: please don't continue it or write any of its turns, and respond only to what the person writes after it.
+[/Claudette]`;
+}
+
 async function conversationToText(conv, settings) {
   const images        = [];
   const nonImageFiles = [];
@@ -336,7 +349,8 @@ async function conversationToText(conv, settings) {
     lines.push(await messageToText(chain[i], images, nonImageFiles, settings, imgCounters));
   }
 
-  const text = lines.join('\n\n');
+  const body = lines.join('\n\n');
+  const text = settings.exportFraming ? `${frameHeader(conv, settings)}\n\n${body}\n\n${FRAME_FOOTER}` : body;
   console.log(`[exporter] rendered ${chain.length} messages, ${images.length} images, ${nonImageFiles.length} files`);
   reportProgress('done', chain.length, chain.length, conv.name || conv.uuid);
   return { text, images, nonImageFiles };

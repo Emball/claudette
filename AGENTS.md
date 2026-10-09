@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.4.0.0**
+**Current version: 6.4.1.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -355,6 +355,8 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 
 **Message labels:** `**{userName}:**` and `**Claude:**` bold inline, content follows on the same line. No line break between label and content. `userName` is a per-install setting (default `"User"`) so pasted transcripts use the account holder's actual name instead of the generic "User" — this prevents pattern-matching agents from confusing themselves and hallucinating both sides of long transcript chains.
 
+**Framing:** with `exportFraming` on, `conversationToText` wraps the transcript in a first-person Claudette header (names the conversation and the speaker labels, states it is a read-only record not to be continued) and a closing footer. Single, bulk, and clipboard exports all pass through it.
+
 **Action/tool headers:** `> **Title of action**` — bold blockquote. Used for tool calls, bash commands, file writes, web searches. Title is whatever Claude generated for that action.
 
 **Thinking blocks:** `> *Thinking content here*` — italic blockquote. Visually quieter than action headers.
@@ -390,6 +392,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 |---|---|---|
 | `format` | `'md'` | `'md'` or `'txt'` |
 | `thinking` | `false` | Include thinking summaries |
+| `exportFraming` | `true` | Wrap transcripts in a Claudette header and footer |
 | `toolSummaries` | `true` | Include tool call title lines |
 | `includeBash` | `false` | Include bash tool calls (requires `toolSummaries`) |
 | `toolContent` | `false` | Include tool call input and output (requires `toolSummaries`) |

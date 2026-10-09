@@ -163,6 +163,7 @@ const CONTENT_DEFAULTS = {
   zip:           true,
   zipFiles:      true,
   userName:      'User',
+  exportFraming: true,
 };
 
 function loadContentSettings() {
