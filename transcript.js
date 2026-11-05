@@ -4,6 +4,7 @@
 const TRANSCRIPT_DEFAULTS = {
   truncateDocs:     true,
   truncateEmbedded: true,
+  truncateCode:     true,
   dedupDocs:        true,
   keepFirstDoc:     false,
   filterBashReads:  true,
@@ -13,6 +14,9 @@ const TRANSCRIPT_DEFAULTS = {
 
 const TRUNC_KEEP      = 16;
 const TRUNC_SLACK     = 8;
+const CODE_MAX_LINES  = 20;
+const CODE_HEAD       = 10;
+const CODE_TAIL       = 5;
 const LONG_LINE_MAX   = 1500;
 const LONG_LINE_KEEP  = 400;
 const TRUNC_MAX_CHARS = 3000;
@@ -100,6 +104,16 @@ function truncateToolInput(text) {
     i = j;
   }
   return truncateLines(out.join('\n'));
+}
+
+function truncateCode(text) {
+  if (TRUNC_MARKER_RE.test(text)) return text;
+  text = capLongLines(text);
+  const lines = text.split('\n');
+  if (lines.length <= CODE_MAX_LINES) return text;
+  const skipped = lines.slice(CODE_HEAD, lines.length - CODE_TAIL);
+  console.log(`[transcript] truncated code block: ${skipped.length} lines`);
+  return [...lines.slice(0, CODE_HEAD), truncMarker(skipped), ...lines.slice(lines.length - CODE_TAIL)].join('\n');
 }
 
 function truncateInputObject(input) {
@@ -354,7 +368,9 @@ function blockPass(text, s) {
         }
       }
       const keepFull = s.dedupDocs && s.keepFirstDoc && !hasMarker;
-      const shown = s.truncateDocs && !keepFull && kind !== 'code' ? truncateLines(body) : body;
+      const shown = kind === 'code'
+        ? (s.truncateCode ? truncateCode(body) : body)
+        : (s.truncateDocs && !keepFull ? truncateLines(body) : body);
       if (eligible) registerSeen(seen, shownAll, fp, name, 'doc', shown);
       out.push(line, ...shown.split('\n'), close);
       i = j + 1;
@@ -432,7 +448,7 @@ function processTranscript(text, settings) {
   const s = { ...TRANSCRIPT_DEFAULTS, ...settings };
   let t = String(text || '').replace(/\r\n/g, '\n');
   if (s.dedupSessions) t = dedupTurnRuns(t);
-  if (s.truncateDocs || s.truncateEmbedded || s.dedupDocs || s.filterBashReads) t = blockPass(t, s);
+  if (s.truncateDocs || s.truncateEmbedded || s.truncateCode || s.dedupDocs || s.filterBashReads) t = blockPass(t, s);
   if (s.trimNoise) t = trimNoise(t);
   return t;
 }

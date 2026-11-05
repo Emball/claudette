@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 7.0.1.0**
+**Current version: 7.0.2.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -386,7 +386,7 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 - `dedupSessions` — runs of 3+ turns already shown earlier in the text are replaced by `[N turns already included above — omitted]`.
 - Block pass over fenced blocks, identified by the line before the fence (`*<Pasted>*`, `*<File: …>*`, `> **title**`, `*<Output>*`; a leading `**Name:** ` label is allowed):
   - `dedupDocs` — documents are fingerprinted by content (whitespace-normalized lines; filename-independent; a leading `// name` or `# name` comment is ignored). A repeat whose lines are all contained in an earlier document becomes `[name attached, truncated]` (`(same as other)` if the name differs). A near-repeat (≥90% line overlap) becomes `[name truncated, altered content: <first 3 changed lines>]`. Docs under 8 lines are never deduped.
-  - Blocks the user pasted into a message (a fence opened right after the human `**Name:**` label) are treated as documents. Other unlabeled fences (Claude's code in prose) are deduped by content but never truncated.
+  - Blocks the user pasted into a message (a fence opened right after the human `**Name:**` label) are treated as documents. Other fences (Claude's code in prose and artifacts) are deduped by content, and with `truncateCode` anything over 20 lines keeps the first 10 and last 5.
   - `truncateDocs` — documents over 40 lines keep the first and last 16 lines with `... [truncated N lines / ~X KB] ...`; lines over 1500 chars are capped. Any text over 3000 chars is also cut to ~1400 chars at the head and ~1000 at the tail, even under 40 lines. `keepFirstDoc` leaves the first copy of each document uncut.
   - `truncateEmbedded` — same cut for tool input (heredoc bodies first) and tool output.
   - `filterBashReads` — a pure-read bash call (`cat`, `head`, `sed -n`, `grep` …, no redirects or heredocs) whose output is ≥90% lines already shown is replaced by `[repeat read of already-shown content omitted]`.
@@ -419,6 +419,7 @@ Text already carrying a truncation marker is never re-truncated, and the pipelin
 | `toolContent` | `false` | Include tool call input and output (requires `toolSummaries`) |
 | `truncateDocs` | `true` | Cut documents over 40 lines to the first and last 16 |
 | `truncateEmbedded` | `true` | Same cut for long bash/tool input and output (requires `toolSummaries`; popup label "Truncate long bash content") |
+| `truncateCode` | `true` | Cut Claude's fenced code over 20 lines to the first 10 and last 5 |
 | `dedupDocs` | `true` | Tag repeated and near-repeated documents by content |
 | `keepFirstDoc` | `false` | Keep the first copy of a document uncut (requires `dedupDocs`) |
 | `filterBashReads` | `true` | Drop pure-read bash calls whose output was already shown (requires `toolSummaries`) |

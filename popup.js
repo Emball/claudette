@@ -14,6 +14,7 @@ const DEFAULTS = {
   exportFraming: true,
   truncateDocs:  true,
   truncateEmbedded: true,
+  truncateCode:  true,
   dedupDocs:     true,
   keepFirstDoc:  false,
   filterBashReads: true,
@@ -47,6 +48,7 @@ const subBashReads = document.getElementById('sub-bashreads');
 const togDedupSessions = document.getElementById('tog-dedupsessions');
 const togTrimNoise = document.getElementById('tog-trimnoise');
 const btnImport = document.getElementById('btn-import');
+const togTruncCode = document.getElementById('tog-trunccode');
 const togImages   = document.getElementById('tog-images');
 const togOcr      = document.getElementById('tog-ocr');
 const togZip      = document.getElementById('tog-zip');
@@ -87,6 +89,7 @@ function applySettings(s) {
   togToolContent.checked = s.toolContent;
   togTruncDocs.checked  = s.truncateDocs;
   togTruncEmbedded.checked = s.truncateEmbedded;
+  togTruncCode.checked = s.truncateCode;
   togDedupDocs.checked = s.dedupDocs;
   togKeepFirst.checked = s.keepFirstDoc;
   togBashReads.checked = s.filterBashReads;
@@ -139,6 +142,7 @@ makeToggle(togFraming,  'exportFraming');
 makeToggle(togToolContent, 'toolContent');
 makeToggle(togTruncDocs, 'truncateDocs');
 makeToggle(togTruncEmbedded, 'truncateEmbedded');
+makeToggle(togTruncCode, 'truncateCode');
 makeToggle(togDedupDocs, 'dedupDocs', on => subKeepFirst.classList.toggle('disabled', !on));
 makeToggle(togKeepFirst, 'keepFirstDoc');
 makeToggle(togBashReads, 'filterBashReads');

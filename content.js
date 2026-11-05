@@ -166,6 +166,7 @@ const CONTENT_DEFAULTS = {
   exportFraming: true,
   truncateDocs:  true,
   truncateEmbedded: true,
+  truncateCode:  true,
   dedupDocs:     true,
   keepFirstDoc:  false,
   filterBashReads: true,

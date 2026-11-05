@@ -3,6 +3,7 @@
 const IMPORT_OPTS = [
   ['truncateDocs', 'Truncate large documents'],
   ['truncateEmbedded', 'Truncate long bash content'],
+  ['truncateCode', 'Truncate long code blocks'],
   ['dedupDocs', 'Tag repeated documents'],
   ['keepFirstDoc', 'Keep first copy in full'],
   ['filterBashReads', 'Skip repeat file reads'],
