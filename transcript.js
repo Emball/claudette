@@ -15,6 +15,9 @@ const TRUNC_KEEP      = 16;
 const TRUNC_SLACK     = 8;
 const LONG_LINE_MAX   = 1500;
 const LONG_LINE_KEEP  = 400;
+const TRUNC_MAX_CHARS = 3000;
+const TRUNC_HEAD_CHARS = 1400;
+const TRUNC_TAIL_CHARS = 1000;
 const DEDUP_MIN_LINES = 8;
 const DEDUP_NEAR      = 0.9;
 const READ_COVER      = 0.9;
@@ -53,13 +56,21 @@ function truncateLines(text) {
   if (TRUNC_MARKER_RE.test(text)) return text;
   text = capLongLines(text);
   const lines = text.split('\n');
-  if (lines.length <= TRUNC_KEEP * 2 + TRUNC_SLACK) return text;
-  const skipped = lines.slice(TRUNC_KEEP, lines.length - TRUNC_KEEP);
+  let head = TRUNC_KEEP, tail = TRUNC_KEEP;
+  if (lines.length <= TRUNC_KEEP * 2 + TRUNC_SLACK) {
+    if (text.length <= TRUNC_MAX_CHARS || lines.length < 6) return text;
+    head = 0; tail = 0;
+    for (let c = 0; head < lines.length - 2 && c + lines[head].length < TRUNC_HEAD_CHARS; head++) c += lines[head].length + 1;
+    for (let c = 0; tail < lines.length - head - 1 && c + lines[lines.length - 1 - tail].length < TRUNC_TAIL_CHARS; tail++) c += lines[lines.length - 1 - tail].length + 1;
+    head = Math.max(head, 1); tail = Math.max(tail, 1);
+    if (head + tail >= lines.length - 1) return text;
+  }
+  const skipped = lines.slice(head, lines.length - tail);
   console.log(`[transcript] truncated ${skipped.length} lines (~${skipped.join('\n').length} chars)`);
   return [
-    ...lines.slice(0, TRUNC_KEEP),
+    ...lines.slice(0, head),
     truncMarker(skipped),
-    ...lines.slice(lines.length - TRUNC_KEEP),
+    ...lines.slice(lines.length - tail),
   ].join('\n');
 }
 
@@ -311,6 +322,8 @@ function blockPass(text, s) {
     if (/^\*<(Pasted|File: .*)>\*$/.test(prev)) kind = 'doc';
     else if (prev.startsWith('> **')) kind = 'input';
     else if (prev === '*<Output>*') kind = 'output';
+    else if (m[1] && !CLAUDE_TURN_RE.test(m[1])) kind = 'paste';
+    else kind = 'code';
 
     let j = i + 1;
     while (j < lines.length && lines[j].replace(/\r$/, '') !== m[2]
@@ -322,17 +335,18 @@ function blockPass(text, s) {
     const body = lines.slice(i + 1, j).join('\n');
     const close = lines[j];
 
-    if (kind === 'doc') {
-      const isFile = prev.startsWith('*<File: ');
-      const name = isFile ? prev.slice(8, -2) : 'pasted text';
+    if (kind === 'doc' || kind === 'paste' || kind === 'code') {
+      const isFile = kind === 'doc' && prev.startsWith('*<File: ');
+      const name = isFile ? prev.slice(8, -2) : kind === 'code' ? 'code block' : 'pasted text';
+      const lead = kind === 'doc' ? label : (m[1] || '');
       const hasMarker = TRUNC_MARKER_RE.test(body);
       const fp = makeFp(body, isFile);
       const eligible = fp.count >= DEDUP_MIN_LINES;
       if (s.dedupDocs && eligible) {
         const hit = matchSeen(fp, seen);
         if (hit) {
-          out.splice(prevIdx);
-          out.push(label + docTag(name, hit, fp));
+          if (kind === 'doc') out.splice(prevIdx);
+          out.push(lead + docTag(name, hit, fp));
           console.log(`[transcript] repeated document '${name}' → ${hit.kind}`);
           i = j + 1;
           lastInput = null;
@@ -340,7 +354,7 @@ function blockPass(text, s) {
         }
       }
       const keepFull = s.dedupDocs && s.keepFirstDoc && !hasMarker;
-      const shown = s.truncateDocs && !keepFull ? truncateLines(body) : body;
+      const shown = s.truncateDocs && !keepFull && kind !== 'code' ? truncateLines(body) : body;
       if (eligible) registerSeen(seen, shownAll, fp, name, 'doc', shown);
       out.push(line, ...shown.split('\n'), close);
       i = j + 1;
