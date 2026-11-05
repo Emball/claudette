@@ -12,6 +12,8 @@ const DEFAULTS = {
   zipFiles:      true,
   userName:      'User',
   exportFraming: true,
+  truncateDocs:  true,
+  truncateEmbedded: true,
 };
 
 const LOCAL_DEFAULTS = {
@@ -29,6 +31,9 @@ const togTools    = document.getElementById('tog-tools');
 const togBash     = document.getElementById('tog-bash');
 const togFraming  = document.getElementById('tog-framing');
 const togToolContent = document.getElementById('tog-toolcontent');
+const togTruncDocs = document.getElementById('tog-truncdocs');
+const togTruncEmbedded = document.getElementById('tog-truncembedded');
+const subTruncEmbedded = document.getElementById('sub-truncembedded');
 const togImages   = document.getElementById('tog-images');
 const togOcr      = document.getElementById('tog-ocr');
 const togZip      = document.getElementById('tog-zip');
@@ -55,6 +60,7 @@ function updateSubRows(imagesOn) {
 function updateToolRows(toolsOn) {
   subBash.classList.toggle('disabled', !toolsOn);
   subToolContent.classList.toggle('disabled', !toolsOn);
+  subTruncEmbedded.classList.toggle('disabled', !toolsOn);
 }
 
 function applySettings(s) {
@@ -65,6 +71,8 @@ function applySettings(s) {
   togBash.checked      = s.includeBash;
   togFraming.checked   = s.exportFraming;
   togToolContent.checked = s.toolContent;
+  togTruncDocs.checked  = s.truncateDocs;
+  togTruncEmbedded.checked = s.truncateEmbedded;
   togImages.checked    = s.images;
   togOcr.checked        = s.ocr;
   togZip.checked        = s.zip;
@@ -109,6 +117,8 @@ makeToggle(togTools,    'toolSummaries', updateToolRows);
 makeToggle(togBash,     'includeBash');
 makeToggle(togFraming,  'exportFraming');
 makeToggle(togToolContent, 'toolContent');
+makeToggle(togTruncDocs, 'truncateDocs');
+makeToggle(togTruncEmbedded, 'truncateEmbedded');
 makeToggle(togImages,   'images', updateSubRows);
 makeToggle(togOcr,      'ocr');
 makeToggle(togZip,      'zip');

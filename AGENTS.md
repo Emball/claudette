@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.4.2.0**
+**Current version: 6.5.0.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -380,6 +380,10 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | Thinking | `> *content*` |
 | Artifact | fenced block, language tag, filename as first-line comment |
 
+**Truncation:** `truncateLines()` keeps `TRUNC_KEEP` (16) lines at each end and inserts `... [truncated N lines / ~X KB] ...` when a text exceeds `2 × TRUNC_KEEP + TRUNC_SLACK` (40) lines. Text already containing that marker is never re-truncated. ZIP-bundled non-image files keep their full content; only the transcript text is cut. Artifacts and code in prose are never truncated.
+
+**Chained transcripts:** On human messages, a text block, paste, `document`, `context`, or attachment containing a line `[Claudette Chat Export: "..."]` is treated as a prior transcript. It is emitted bare, with no `**User:**` label and no `*<Pasted>*`/`*<File>*` wrapper, so sessions read as one continuous transcript; any text before the header stays under the normal label. The inner header and footer lines are kept as session boundaries. `truncateTranscript()` then applies the truncation rules to the inner `*<Pasted>*`/`*<File: ...>*` blocks (`truncateDocs`) and to blocks following a `> **...**` header or `*<Output>*` (`truncateEmbedded`). A fence that would span a `**Claude:**` line, a transcript header, or a footer is treated as unclosed and left untouched. Assistant messages are never woven.
+
 **ZIP structure:**
 - Single export, no images → bare `.md`/`.txt`
 - Single export, images present → ZIP with `.md` and `images/` at root (no subfolder nesting)
@@ -397,6 +401,8 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | `toolSummaries` | `true` | Include tool call title lines |
 | `includeBash` | `false` | Include bash tool calls (requires `toolSummaries`) |
 | `toolContent` | `false` | Include tool call input and output (requires `toolSummaries`) |
+| `truncateDocs` | `true` | Cut pasted text, uploaded files, and `document`/`context` blocks over 40 lines to the first and last 16 lines |
+| `truncateEmbedded` | `true` | Same cut for tool call input (heredoc bodies first, then whole command; other tools' string fields) and tool output (requires `toolSummaries`) |
 | `images` | `true` | Process images at all |
 | `ocr` | `false` | Run Tesseract OCR on screenshots — **off by default** (slow) |
 | `zip` | `true` | Package image files into ZIP (sub-toggle, requires `images: true`) |

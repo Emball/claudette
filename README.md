@@ -51,6 +51,10 @@ Export any Claude.ai conversation as Markdown or plain text, instantly using the
 | ↳ Use OCR | Off | OCR on screenshots (slow) |
 | ↳ Package in ZIP | On | Save images to ZIP |
 | ZIP non-image files | On | Bundle uploaded files into ZIP |
+| Truncate large documents | On | Pasted/uploaded text over 40 lines is cut to its first and last 16 lines |
+| ↳ Truncate embedded content | On | Same for file contents embedded in tool calls and long tool output |
+
+Prior Claudette transcripts pasted or attached to a chat are detected automatically, woven inline into the export without file wrappers, and truncated the same way if they haven't been already.
 
 ## Coming soon
 

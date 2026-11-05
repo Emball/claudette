@@ -12,6 +12,8 @@ const EXPORTER_DEFAULTS = {
   zipFiles:      true,
   userName:      'User',
   exportFraming: true,
+  truncateDocs:  true,
+  truncateEmbedded: true,
 };
 
 const TOOL_OUTPUT_MAX = 4000;
@@ -21,10 +23,160 @@ function capText(text) {
   return `${text.slice(0, TOOL_OUTPUT_MAX)}\n[truncated ${text.length - TOOL_OUTPUT_MAX} chars]`;
 }
 
-function toolInputText(input) {
+function toolInputText(input, settings) {
   if (!input || typeof input !== 'object') return '';
-  if (typeof input.command === 'string') return input.command;
-  return JSON.stringify(input, null, 2);
+  const trunc = settings && settings.truncateEmbedded;
+  if (typeof input.command === 'string')
+    return trunc ? truncateToolInput(input.command) : input.command;
+  return JSON.stringify(trunc ? truncateInputObject(input) : input, null, 2);
+}
+
+// --- Truncation + chained transcript helpers ---
+// Large documents and embedded tool-call content are cut to the first and last
+// TRUNC_KEEP lines. Anything already carrying a truncation marker is left alone,
+// so re-processing a pasted transcript never double-truncates.
+
+const TRUNC_KEEP  = 16;
+const TRUNC_SLACK = 8;
+const TRUNC_MARKER_RE = /^\.\.\. \[truncated \d+ lines \/ ~\d+ KB[^\]]*\] \.\.\.\s*$/m;
+const CHAIN_HEADER_RE = /^\[Claudette Chat Export: .*\]\s*$/m;
+const CHAIN_FOOTER_RE = /^\[End of Claudette Chat Export\]\s*$/;
+const CHAIN_HEADER_LINE_RE = /^\[Claudette Chat Export: /;
+const CLAUDE_TURN_RE = /^\*\*Claude:\*\* /;
+
+function truncMarker(skipped) {
+  const kb = Math.max(1, Math.round(skipped.join('\n').length / 1024));
+  return `... [truncated ${skipped.length} lines / ~${kb} KB] ...`;
+}
+
+function truncateLines(text) {
+  if (TRUNC_MARKER_RE.test(text)) return text;
+  const lines = text.split('\n');
+  if (lines.length <= TRUNC_KEEP * 2 + TRUNC_SLACK) return text;
+  const skipped = lines.slice(TRUNC_KEEP, lines.length - TRUNC_KEEP);
+  console.log(`[exporter] truncated ${skipped.length} lines (~${skipped.join('\n').length} chars)`);
+  return [
+    ...lines.slice(0, TRUNC_KEEP),
+    truncMarker(skipped),
+    ...lines.slice(lines.length - TRUNC_KEEP),
+  ].join('\n');
+}
+
+// Shell command text: truncate heredoc bodies first (the embedded file content),
+// then fall back to plain line truncation if the command is still long.
+function truncateToolInput(text) {
+  if (TRUNC_MARKER_RE.test(text)) return text;
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    out.push(line);
+    i++;
+    const m = line.match(/(?<!<)<<-?\s*(['"]?)([A-Z_][A-Z0-9_]*)\1(?=\s|$|[|;&)>])/);
+    if (!m) continue;
+    let j = i;
+    while (j < lines.length && lines[j].trim() !== m[2]) j++;
+    if (j >= lines.length) continue;
+    const body = lines.slice(i, j);
+    if (body.length > TRUNC_KEEP * 2 + TRUNC_SLACK) {
+      const skipped = body.slice(TRUNC_KEEP, body.length - TRUNC_KEEP);
+      console.log(`[exporter] truncated heredoc '${m[2]}': ${skipped.length} lines`);
+      out.push(...body.slice(0, TRUNC_KEEP), truncMarker(skipped), ...body.slice(body.length - TRUNC_KEEP));
+    } else {
+      out.push(...body);
+    }
+    i = j;
+  }
+  return truncateLines(out.join('\n'));
+}
+
+function truncateInputObject(input) {
+  const out = {};
+  for (const [k, v] of Object.entries(input))
+    out[k] = typeof v === 'string' ? truncateLines(v) : v;
+  return out;
+}
+
+function docText(text, settings) {
+  return settings.truncateDocs ? truncateLines(text) : text;
+}
+
+// Splits text at the first Claudette export header. Returns null if none.
+function splitChained(text) {
+  const m = CHAIN_HEADER_RE.exec(text || '');
+  if (!m) return null;
+  return {
+    before:     text.slice(0, m.index).trim(),
+    transcript: text.slice(m.index).trim(),
+  };
+}
+
+// Applies truncation to the fenced blocks of an already-rendered transcript.
+// Only pasted/uploaded file blocks (*<Pasted>*, *<File: ...>*) and tool call
+// input/output blocks are touched; code in prose and artifacts are left alone.
+function truncateTranscript(text, settings) {
+  if (!settings.truncateDocs && !settings.truncateEmbedded) return text;
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const m = line.match(/^(\*\*[^*\n]{1,40}:\*\* )?(`{3,})[^`\r]*\r?$/);
+    if (!m) { out.push(line); i++; continue; }
+
+    let prev = '';
+    if (!m[1]) {
+      for (let k = out.length - 1; k >= 0; k--) {
+        if (out[k].trim()) { prev = out[k].trim(); break; }
+      }
+    }
+    let kind = null;
+    if (/^\*<(Pasted|File: .*)>\*$/.test(prev)) kind = 'doc';
+    else if (prev.startsWith('> **')) kind = 'input';
+    else if (prev === '*<Output>*') kind = 'output';
+
+    let j = i + 1;
+    while (j < lines.length && lines[j].replace(/\r$/, '') !== m[2]
+           && !CHAIN_FOOTER_RE.test(lines[j]) && !CHAIN_HEADER_LINE_RE.test(lines[j])
+           && !CLAUDE_TURN_RE.test(lines[j])) j++;
+    const closed = j < lines.length && lines[j].replace(/\r$/, '') === m[2];
+
+    out.push(line);
+    if (!closed || !kind) { i++; continue; }
+
+    let body = lines.slice(i + 1, j).join('\n');
+    if (kind === 'doc' && settings.truncateDocs) body = truncateLines(body);
+    else if (kind === 'input' && settings.truncateEmbedded) body = truncateToolInput(body);
+    else if (kind === 'output' && settings.truncateEmbedded) body = truncateLines(body);
+    out.push(...body.split('\n'), lines[j]);
+    i = j + 1;
+  }
+  return out.join('\n');
+}
+
+// Parts are { text, chained }. A chained part is a prior transcript pasted into
+// this message; it is emitted bare (no label, no file/paste wrapper) so the
+// sessions read as one continuous transcript.
+function chainedParts(chained, settings) {
+  const parts = [];
+  if (chained.before) parts.push({ text: chained.before });
+  console.log('[exporter] chained transcript detected, weaving inline');
+  parts.push({ text: truncateTranscript(chained.transcript, settings), chained: true });
+  return parts;
+}
+
+function plainTextParts(text, isHuman, settings) {
+  const chained = isHuman ? splitChained(text) : null;
+  return chained ? chainedParts(chained, settings) : [{ text: text || '' }];
+}
+
+function pastedParts(content, isHuman, settings) {
+  const chained = isHuman ? splitChained(content) : null;
+  if (chained) return chainedParts(chained, settings);
+  const body = docText(content, settings);
+  const f = safeFence(body);
+  return [{ text: `*<Pasted>*\n${f}\n${body}\n${f}` }];
 }
 
 function toolResultText(block) {
@@ -163,9 +315,10 @@ async function classifyAndRouteFile(file, images, settings, imageIndex, imageTot
 
 // --- Content block renderer ---
 
-async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgCounters) {
-  if (!Array.isArray(blocks)) return '';
+async function contentBlocksToParts(blocks, images, nonImageFiles, settings, imgCounters, isHuman) {
+  if (!Array.isArray(blocks)) return [];
   const parts = [];
+  const add = text => parts.push({ text });
 
   for (const block of blocks) {
 
@@ -173,11 +326,11 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
       if (settings.thinking) {
         const thought = (block.thinking || block.text || '').trim();
         if (thought) {
-          parts.push(`> *${thought}*`);
+          add(`> *${thought}*`);
         } else if (Array.isArray(block.summaries)) {
           for (const s of block.summaries) {
             const t = ((s && s.summary) || '').trim();
-            if (t) parts.push(`> *${t}*`);
+            if (t) add(`> *${t}*`);
           }
         }
       }
@@ -186,11 +339,9 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
 
     if (block.type === 'text') {
       if (block.is_paste || block.paste_id) {
-        const content = (block.text || '').trim();
-        const f0 = safeFence(content);
-        parts.push(`*<Pasted>*\n${f0}\n${content}\n${f0}`);
+        parts.push(...pastedParts((block.text || '').trim(), isHuman, settings));
       } else {
-        parts.push(block.text || '');
+        parts.push(...plainTextParts(block.text || '', isHuman, settings));
       }
       continue;
     }
@@ -200,10 +351,10 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
       const name = block.name || 'tool';
       if (!settings.includeBash && name.toLowerCase().includes('bash')) continue;
       const title = block.title || name;
-      parts.push(`> **${title}**`);
+      add(`> **${title}**`);
       if (settings.toolContent) {
-        const input = capText(toolInputText(block.input).trim());
-        if (input) { const f = safeFence(input); parts.push(`${f}\n${input}\n${f}`); }
+        const input = capText(toolInputText(block.input, settings).trim());
+        if (input) { const f = safeFence(input); add(`${f}\n${input}\n${f}`); }
       }
       continue;
     }
@@ -211,8 +362,10 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
     if (block.type === 'tool_result') {
       if (!settings.toolSummaries || !settings.toolContent) continue;
       if (!settings.includeBash && (block.name || '').toLowerCase().includes('bash')) continue;
-      const output = capText(toolResultText(block).trim());
-      if (output) { const f = safeFence(output); parts.push(`*<Output>*\n${f}\n${output}\n${f}`); }
+      let output = toolResultText(block).trim();
+      if (settings.truncateEmbedded) output = truncateLines(output);
+      output = capText(output);
+      if (output) { const f = safeFence(output); add(`*<Output>*\n${f}\n${output}\n${f}`); }
       continue;
     }
 
@@ -228,51 +381,53 @@ async function contentBlocksToText(blocks, images, nonImageFiles, settings, imgC
       const content = block.content || '';
       const comment = lang === 'python' ? `# ${fname}` : `// ${fname}`;
       const f3 = safeFence(content);
-      parts.push(`${f3}${lang}\n${comment}\n${content}\n${f3}`);
+      add(`${f3}${lang}\n${comment}\n${content}\n${f3}`);
       continue;
     }
 
     if (block.type === 'document') {
       const name = block.name || block.document?.name || 'file';
       const text = block.text || block.document?.text || block.document?.content || '';
+      const chained = isHuman ? splitChained(text) : null;
+      if (chained) { parts.push(...chainedParts(chained, settings)); continue; }
       const lang  = inferLang(name, text);
       const comment = lang === 'python' ? `# ${name}` : `// ${name}`;
-      const f4 = safeFence(text);
-      const entry = `*<File: ${name}>*\n${f4}${lang}\n${comment}\n${text.trim()}\n${f4}`;
+      const shown = docText(text.trim(), settings);
+      const f4 = safeFence(shown);
+      const entry = `*<File: ${name}>*\n${f4}${lang}\n${comment}\n${shown}\n${f4}`;
       if (settings.zipFiles) nonImageFiles.push({ filename: name, content: text.trim() });
-      parts.push(entry);
+      add(entry);
       continue;
     }
 
     if (block.type === 'context') {
       const content = block.body || block.content || block.text || '';
-      const f5 = safeFence(content);
-      parts.push(`*<Pasted>*\n${f5}\n${content.trim()}\n${f5}`);
+      parts.push(...pastedParts(content.trim(), isHuman, settings));
       continue;
     }
 
     console.warn('[exporter] unknown block type:', block.type, block);
   }
 
-  return parts.join('\n\n');
+  return parts;
 }
 
 // --- Message renderer ---
 
 async function messageToText(msg, images, nonImageFiles, settings, imgCounters) {
   const userLabel = (settings.userName || 'User').trim() || 'User';
-  const role = msg.sender === 'human' ? `**${userLabel}:**` : '**Claude:**';
-  let body = '';
+  const isHuman = msg.sender === 'human';
+  const role = isHuman ? `**${userLabel}:**` : '**Claude:**';
+  const parts = [];
 
   if (Array.isArray(msg.content)) {
-    body = await contentBlocksToText(msg.content, images, nonImageFiles, settings, imgCounters);
+    parts.push(...await contentBlocksToParts(msg.content, images, nonImageFiles, settings, imgCounters, isHuman));
   } else if (typeof msg.content === 'string') {
-    body = msg.content;
+    parts.push(...plainTextParts(msg.content, isHuman, settings));
   } else if (msg.text) {
-    body = msg.text;
+    parts.push(...plainTextParts(msg.text, isHuman, settings));
   }
 
-  const fileParts = [];
   const allFiles = [...(msg.attachments || []), ...(msg.files || [])];
   for (const file of allFiles) {
     if (file.success === false) continue;
@@ -282,7 +437,7 @@ async function messageToText(msg, images, nonImageFiles, settings, imgCounters) 
     if (file.file_kind === 'image') {
       if (!settings.images) {
         imgCounters.omitted = (imgCounters.omitted || 0) + 1;
-        fileParts.push(`*<Image not exported: ${name}>*`);
+        parts.push({ text: `*<Image not exported: ${name}>*` });
         continue;
       }
       const idx   = imgCounters.current++;
@@ -294,26 +449,45 @@ async function messageToText(msg, images, nonImageFiles, settings, imgCounters) 
         console.error('[exporter] classifyAndRouteFile threw:', e);
         rendered = `*<Screenshot: ${name}>*\n\`\`\`\nprocessing failed\n\`\`\``;
       }
-      if (rendered) fileParts.push(rendered);
+      if (rendered) parts.push({ text: rendered });
     } else {
       const content = file.extracted_content || file.text || file.content || '';
       if (!content.trim()) continue;
 
+      const chained = isHuman ? splitChained(content) : null;
+      if (chained) { parts.push(...chainedParts(chained, settings)); continue; }
+
       const hasExt = rawName && rawName.includes('.');
       const lang   = inferLang(name, content);
+      const shown  = docText(content.trim(), settings);
+      const f      = safeFence(shown);
 
       if (!hasExt) {
-        fileParts.push(`\`\`\`${lang}\n${content.trim()}\n\`\`\``);
+        parts.push({ text: `${f}${lang}\n${shown}\n${f}` });
       } else {
         const comment = lang === 'python' ? `# ${name}` : `// ${name}`;
-        fileParts.push(`*<File: ${name}>*\n\`\`\`${lang}\n${comment}\n${content.trim()}\n\`\`\``);
+        parts.push({ text: `*<File: ${name}>*\n${f}${lang}\n${comment}\n${shown}\n${f}` });
         if (settings.zipFiles) nonImageFiles.push({ filename: name, content: content.trim() });
       }
     }
   }
 
-  const allParts = [body.trim(), ...fileParts].filter(Boolean);
-  return `${role} ${allParts.join('\n\n')}`;
+  // Consecutive normal parts share one role label; chained transcripts break
+  // the run and are emitted bare, in order.
+  const segments = [];
+  let group = [];
+  const flush = () => {
+    const text = group.map(p => p.text).join('\n\n').trim();
+    if (text) segments.push(`${role} ${text}`);
+    group = [];
+  };
+  for (const part of parts) {
+    if (part.chained) { flush(); segments.push(part.text); }
+    else group.push(part);
+  }
+  flush();
+
+  return segments.length ? segments.join('\n\n') : `${role} `;
 }
 
 // --- Conversation renderer ---

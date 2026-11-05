@@ -164,6 +164,8 @@ const CONTENT_DEFAULTS = {
   zipFiles:      true,
   userName:      'User',
   exportFraming: true,
+  truncateDocs:  true,
+  truncateEmbedded: true,
 };
 
 function loadContentSettings() {
