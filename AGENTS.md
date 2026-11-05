@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 6.5.0.0**
+**Current version: 7.0.0.0**
 
 **Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
 
@@ -30,6 +30,8 @@ manifest.json                        MV3 manifest — permissions, content scrip
 background.js                        Service worker — all Claude API calls, concurrency queue, OCR bridge
 content.js                           Injected into claude.ai — button injection, progress bar, SPA nav
 exporter.js                          Converts raw API data → MD/TXT, packages ZIPs via JSZip
+transcript.js                        Pure text pipeline (truncate, dedup, read filter, unwrap) — no chrome/DOM deps
+transcript.html / transcript_import.js  Import page — applies current settings to an old transcript
 image_classifier.js                  Image fingerprinting + OCR routing, semaphore-based worker pool
 popup.html / popup.js                Settings popup — format/content toggles + progress mirror
 ocr_engine.html                      Hidden iframe page (extension origin) — Tesseract runs here
@@ -380,9 +382,22 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | Thinking | `> *content*` |
 | Artifact | fenced block, language tag, filename as first-line comment |
 
-**Truncation:** `truncateLines()` keeps `TRUNC_KEEP` (16) lines at each end and inserts `... [truncated N lines / ~X KB] ...` when a text exceeds `2 × TRUNC_KEEP + TRUNC_SLACK` (40) lines. Text already containing that marker is never re-truncated. ZIP-bundled non-image files keep their full content; only the transcript text is cut. Artifacts and code in prose are never truncated.
+**Transcript pipeline (`transcript.js`):** `conversationToText` renders the whole transcript, then runs `processTranscript(text, settings)` once. Passes, in order:
+- `dedupSessions` — runs of 3+ turns already shown earlier in the text are replaced by `[N turns already included above — omitted]`.
+- Block pass over fenced blocks, identified by the line before the fence (`*<Pasted>*`, `*<File: …>*`, `> **title**`, `*<Output>*`; a leading `**Name:** ` label is allowed):
+  - `dedupDocs` — documents are fingerprinted by content (whitespace-normalized lines; filename-independent; a leading `// name` or `# name` comment is ignored). A repeat whose lines are all contained in an earlier document becomes `[name attached, truncated]` (`(same as other)` if the name differs). A near-repeat (≥90% line overlap) becomes `[name truncated, altered content: <first 3 changed lines>]`. Docs under 8 lines are never deduped.
+  - `truncateDocs` — documents over 40 lines keep the first and last 16 lines with `... [truncated N lines / ~X KB] ...`; lines over 1500 chars are capped. `keepFirstDoc` leaves the first copy of each document uncut.
+  - `truncateEmbedded` — same cut for tool input (heredoc bodies first) and tool output.
+  - `filterBashReads` — a pure-read bash call (`cat`, `head`, `sed -n`, `grep` …, no redirects or heredocs) whose output is ≥90% lines already shown is replaced by `[repeat read of already-shown content omitted]`.
+- `trimNoise` — drops `Shell cwd was reset` lines and collapses runs of 4+ thinking lines.
 
-**Chained transcripts:** On human messages, a text block, paste, `document`, `context`, or attachment containing a line `[Claudette Chat Export: "..."]` is treated as a prior transcript. It is emitted bare, with no `**User:**` label and no `*<Pasted>*`/`*<File>*` wrapper, so sessions read as one continuous transcript; any text before the header stays under the normal label. The inner header and footer lines are kept as session boundaries. `truncateTranscript()` then applies the truncation rules to the inner `*<Pasted>*`/`*<File: ...>*` blocks (`truncateDocs`) and to blocks following a `> **...**` header or `*<Output>*` (`truncateEmbedded`). A fence that would span a `**Claude:**` line, a transcript header, or a footer is treated as unclosed and left untouched. Assistant messages are never woven.
+Text already carrying a truncation marker is never re-truncated, and the pipeline is idempotent. An unclosed fence (runs into a `**Claude:**` turn, header, or footer) is left untouched.
+
+**Chained transcripts:** On human messages, a text block, paste, `document`, `context`, or attachment containing a line `[Claudette Chat Export: "..."]` is treated as a prior transcript and emitted bare (no label, no `*<Pasted>*`/`*<File>*` wrapper); text before the header stays under the normal label. Inner header and footer lines stay as session boundaries. The woven text goes through the same pipeline, so dedup works across sessions. Assistant messages are never woven. Pasted exports are the only session-bridging mechanism; the library/registry is not wired into it.
+
+**Placeholders:** attachments or document blocks with no extractable text, or `success: false`, render as `*<File not exported: name (reason)>*` and log a warning instead of being skipped.
+
+**Import page** (`transcript.html`, opened from the popup): loads or pastes an old export, `retrofitTranscript` = `unwrapTranscripts` (removes fence/label wrappers around pasted prior transcripts) + `processTranscript`, with per-run toggles defaulting to the saved settings.
 
 **ZIP structure:**
 - Single export, no images → bare `.md`/`.txt`
@@ -401,8 +416,13 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 | `toolSummaries` | `true` | Include tool call title lines |
 | `includeBash` | `false` | Include bash tool calls (requires `toolSummaries`) |
 | `toolContent` | `false` | Include tool call input and output (requires `toolSummaries`) |
-| `truncateDocs` | `true` | Cut pasted text, uploaded files, and `document`/`context` blocks over 40 lines to the first and last 16 lines |
-| `truncateEmbedded` | `true` | Same cut for tool call input (heredoc bodies first, then whole command; other tools' string fields) and tool output (requires `toolSummaries`) |
+| `truncateDocs` | `true` | Cut documents over 40 lines to the first and last 16 |
+| `truncateEmbedded` | `true` | Same cut for long bash/tool input and output (requires `toolSummaries`; popup label "Truncate long bash content") |
+| `dedupDocs` | `true` | Tag repeated and near-repeated documents by content |
+| `keepFirstDoc` | `false` | Keep the first copy of a document uncut (requires `dedupDocs`) |
+| `filterBashReads` | `true` | Drop pure-read bash calls whose output was already shown (requires `toolSummaries`) |
+| `dedupSessions` | `true` | Drop runs of turns already included above |
+| `trimNoise` | `true` | Strip shell-cwd lines and collapse thinking runs |
 | `images` | `true` | Process images at all |
 | `ocr` | `false` | Run Tesseract OCR on screenshots — **off by default** (slow) |
 | `zip` | `true` | Package image files into ZIP (sub-toggle, requires `images: true`) |

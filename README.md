@@ -52,7 +52,11 @@ Export any Claude.ai conversation as Markdown or plain text, instantly using the
 | ↳ Package in ZIP | On | Save images to ZIP |
 | ZIP non-image files | On | Bundle uploaded files into ZIP |
 | Truncate large documents | On | Pasted/uploaded text over 40 lines is cut to its first and last 16 lines |
-| ↳ Truncate embedded content | On | Same for file contents embedded in tool calls and long tool output |
+| ↳ Truncate long bash content | On | Same for file contents embedded in tool calls and long tool output |
+| ↳ Tag repeated documents | On | Repeats are matched by content, not filename, and replaced with a short tag |
+| ↳ Skip repeat file reads | On | Drops bash reads of content already shown |
+
+The popup's **Clean up an old transcript** opens a page that applies these settings to an older export.
 
 Prior Claudette transcripts pasted or attached to a chat are detected automatically, woven inline into the export without file wrappers, and truncated the same way if they haven't been already.
 

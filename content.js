@@ -166,6 +166,11 @@ const CONTENT_DEFAULTS = {
   exportFraming: true,
   truncateDocs:  true,
   truncateEmbedded: true,
+  dedupDocs:     true,
+  keepFirstDoc:  false,
+  filterBashReads: true,
+  dedupSessions: true,
+  trimNoise:     true,
 };
 
 function loadContentSettings() {
@@ -377,6 +382,10 @@ async function ensureLibs() {
   if (libsReady) return libsReady;
   libsReady = (async () => {
     if (!window.JSZip) await loadScript(chrome.runtime.getURL('jszip.min.js'));
+    if (!window._cceTranscriptLoaded) {
+      await loadScript(chrome.runtime.getURL('transcript.js'));
+      window._cceTranscriptLoaded = true;
+    }
     if (!window._cceExporterLoaded) {
       await loadScript(chrome.runtime.getURL('exporter.js'));
       window._cceExporterLoaded = true;

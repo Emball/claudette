@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Claudette",
-  "version": "6.5.0",
+  "version": "7.0.0",
   "description": "Export Claude.ai chats as Markdown or plain text with images.",
   "permissions": [
     "storage",
@@ -30,6 +30,7 @@
       "js": [
         "jszip.min.js",
         "image_classifier.js",
+        "transcript.js",
         "exporter.js",
         "content.js"
       ],
@@ -61,6 +62,9 @@
         "tesseract-core-simd-lstm.wasm",
         "tesseract-core-simd-lstm.js",
         "exporter.js",
+        "transcript.js",
+        "transcript.html",
+        "transcript_import.js",
         "jszip.min.js",
         "image_classifier.js",
         "stt_patch.js"

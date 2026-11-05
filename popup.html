@@ -185,6 +185,42 @@
     </label>
   </div>
 
+  <div class="row sub">
+    <span class="label">Tag repeated documents</span>
+    <label class="switch">
+      <input type="checkbox" id="tog-dedupdocs" checked>
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </label>
+  </div>
+
+  <div class="row sub" id="sub-keepfirst">
+    <span class="label">Keep first copy in full</span>
+    <label class="switch">
+      <input type="checkbox" id="tog-keepfirst">
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </label>
+  </div>
+
+  <div class="row">
+    <span class="label">Drop repeated session turns</span>
+    <label class="switch">
+      <input type="checkbox" id="tog-dedupsessions" checked>
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </label>
+  </div>
+
+  <div class="row">
+    <span class="label">Trim transcript noise</span>
+    <label class="switch">
+      <input type="checkbox" id="tog-trimnoise" checked>
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </label>
+  </div>
+
   <div class="row">
     <span class="label">Include thinking</span>
     <label class="switch">
@@ -222,9 +258,18 @@
   </div>
 
   <div class="row sub" id="sub-truncembedded">
-    <span class="label">Truncate embedded content <span class="slow-note">(in tool calls)</span></span>
+    <span class="label">Truncate long bash content</span>
     <label class="switch">
       <input type="checkbox" id="tog-truncembedded" checked>
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </label>
+  </div>
+
+  <div class="row sub" id="sub-bashreads">
+    <span class="label">Skip repeat file reads <span class="slow-note">(already shown)</span></span>
+    <label class="switch">
+      <input type="checkbox" id="tog-bashreads" checked>
       <div class="switch-track"></div>
       <div class="switch-thumb"></div>
     </label>
@@ -267,6 +312,11 @@
   </div>
 
   <div class="divider"></div>
+  <div class="section-label">Transcripts</div>
+  <div class="row">
+    <button id="btn-import" style="width:100%;padding:6px;background:#2a2a2a;color:#c8c8c8;border:1px solid #333;border-radius:5px;cursor:pointer;font-size:12px;">Clean up an old transcript</button>
+  </div>
+
   <div class="section-label">Library</div>
 
   <div class="row" id="lib-account-row">
@@ -327,7 +377,7 @@
   </div>
 
   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
-    <span id="version-badge" style="font-size:9px;color:#333;cursor:default;user-select:none;letter-spacing:0.04em;">v6.5.0.0</span>
+    <span id="version-badge" style="font-size:9px;color:#333;cursor:default;user-select:none;letter-spacing:0.04em;">v7.0.0.0</span>
     <div class="status" id="status" style="margin-top:0;"></div>
   </div>
 

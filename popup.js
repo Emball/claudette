@@ -14,6 +14,11 @@ const DEFAULTS = {
   exportFraming: true,
   truncateDocs:  true,
   truncateEmbedded: true,
+  dedupDocs:     true,
+  keepFirstDoc:  false,
+  filterBashReads: true,
+  dedupSessions: true,
+  trimNoise:     true,
 };
 
 const LOCAL_DEFAULTS = {
@@ -34,6 +39,14 @@ const togToolContent = document.getElementById('tog-toolcontent');
 const togTruncDocs = document.getElementById('tog-truncdocs');
 const togTruncEmbedded = document.getElementById('tog-truncembedded');
 const subTruncEmbedded = document.getElementById('sub-truncembedded');
+const togDedupDocs = document.getElementById('tog-dedupdocs');
+const togKeepFirst = document.getElementById('tog-keepfirst');
+const subKeepFirst = document.getElementById('sub-keepfirst');
+const togBashReads = document.getElementById('tog-bashreads');
+const subBashReads = document.getElementById('sub-bashreads');
+const togDedupSessions = document.getElementById('tog-dedupsessions');
+const togTrimNoise = document.getElementById('tog-trimnoise');
+const btnImport = document.getElementById('btn-import');
 const togImages   = document.getElementById('tog-images');
 const togOcr      = document.getElementById('tog-ocr');
 const togZip      = document.getElementById('tog-zip');
@@ -61,6 +74,7 @@ function updateToolRows(toolsOn) {
   subBash.classList.toggle('disabled', !toolsOn);
   subToolContent.classList.toggle('disabled', !toolsOn);
   subTruncEmbedded.classList.toggle('disabled', !toolsOn);
+  subBashReads.classList.toggle('disabled', !toolsOn);
 }
 
 function applySettings(s) {
@@ -73,6 +87,12 @@ function applySettings(s) {
   togToolContent.checked = s.toolContent;
   togTruncDocs.checked  = s.truncateDocs;
   togTruncEmbedded.checked = s.truncateEmbedded;
+  togDedupDocs.checked = s.dedupDocs;
+  togKeepFirst.checked = s.keepFirstDoc;
+  togBashReads.checked = s.filterBashReads;
+  togDedupSessions.checked = s.dedupSessions;
+  togTrimNoise.checked = s.trimNoise;
+  subKeepFirst.classList.toggle('disabled', !s.dedupDocs);
   togImages.checked    = s.images;
   togOcr.checked        = s.ocr;
   togZip.checked        = s.zip;
@@ -119,6 +139,12 @@ makeToggle(togFraming,  'exportFraming');
 makeToggle(togToolContent, 'toolContent');
 makeToggle(togTruncDocs, 'truncateDocs');
 makeToggle(togTruncEmbedded, 'truncateEmbedded');
+makeToggle(togDedupDocs, 'dedupDocs', on => subKeepFirst.classList.toggle('disabled', !on));
+makeToggle(togKeepFirst, 'keepFirstDoc');
+makeToggle(togBashReads, 'filterBashReads');
+makeToggle(togDedupSessions, 'dedupSessions');
+makeToggle(togTrimNoise, 'trimNoise');
+btnImport.addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('transcript.html') }));
 makeToggle(togImages,   'images', updateSubRows);
 makeToggle(togOcr,      'ocr');
 makeToggle(togZip,      'zip');
