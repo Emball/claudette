@@ -230,6 +230,145 @@ async function concurrentFetch(orgId, convIds, tabId) {
   return results;
 }
 
+// --- Library sync ---
+// Brings the library for the logged-in account in line with claude.ai: fetches chats that are
+// missing or whose updated_at changed, and never deletes archived chats. Runs detached from any
+// message channel so closing the popup cannot interrupt it; progress is published to
+// chrome.storage.local (sweepStatus). A heartbeat keeps the worker alive, and an interrupted
+// sync resumes on the next worker start (see resumeInterruptedSync).
+
+const SWEEP_BATCH = 20;
+const SYNC_HEARTBEAT_MS = 20000;
+let activeSync = null;
+
+function startSync(reason) {
+  if (activeSync) {
+    console.log(`[bg] sync (${reason}) requested while one is running — ignored`);
+    return false;
+  }
+  activeSync = syncAccount(reason)
+    .catch(err => console.error('[bg] sync crashed:', err))
+    .finally(() => { activeSync = null; });
+  return true;
+}
+
+async function syncAccount(reason) {
+  const status = {
+    running: true, reason, orgId: null, phase: 'listing',
+    done: 0, total: 0, failed: 0, error: null, startedAt: Date.now(), updatedAt: Date.now(),
+  };
+  const publish = async patch => {
+    Object.assign(status, patch, { updatedAt: Date.now() });
+    try { await chrome.storage.local.set({ sweepStatus: status }); }
+    catch (err) { console.error('[bg] sweepStatus write failed:', err.message); }
+  };
+  const heartbeat = setInterval(() => {
+    chrome.runtime.getPlatformInfo().catch(() => {});
+    publish({});
+  }, SYNC_HEARTBEAT_MS);
+
+  try {
+    console.log(`[bg] sync (${reason}) starting`);
+    await publish({});
+    const { orgId, email, orgName } = await detectOrgAndAccount();
+    status.orgId = orgId;
+    const allConvs = await fetchAllConversations(orgId);
+
+    const stored   = await chrome.storage.local.get(['accountRegistry', 'library']);
+    const registry = stored.accountRegistry || {};
+    const library  = stored.library || {};
+    const have     = library[orgId] || (library[orgId] = {});
+
+    if (!registry[orgId]) registry[orgId] = { orgId, email, orgName, firstSeen: Date.now() };
+    registry[orgId].email     = email || registry[orgId].email;
+    registry[orgId].orgName   = orgName || registry[orgId].orgName;
+    registry[orgId].convCount = Object.keys(have).length;
+
+    const meta = {};
+    for (const c of allConvs) meta[c.uuid] = c;
+    const pending = allConvs
+      .filter(c => !have[c.uuid] || (have[c.uuid].updated_at || null) !== (c.updated_at || null))
+      .map(c => c.uuid);
+
+    if (pending.length) registry[orgId].sweepDone = false;
+    await chrome.storage.local.set({ accountRegistry: registry });
+
+    let done = allConvs.length - pending.length;
+    let failed = 0;
+    console.log(`[bg] sync ${orgId}: ${allConvs.length} on claude.ai, ${pending.length} new or changed, ${done} up to date`);
+    await publish({ orgId, phase: 'fetching', done, total: allConvs.length, failed });
+
+    for (let bStart = 0; bStart < pending.length; bStart += SWEEP_BATCH) {
+      const batch = pending.slice(bStart, bStart + SWEEP_BATCH);
+
+      while (estimatedHeapMB() > MEM_CEILING_MB) {
+        console.warn(`[bg] sync heap ~${estimatedHeapMB().toFixed(0)}MB — pausing`);
+        await delay(1500);
+      }
+
+      const batchResults = await Promise.all(
+        batch.map(async (convId, bi) => {
+          await delay(bi * FETCH_DELAY_MS);
+          try {
+            return { convId, success: true, data: await fetchConversation(orgId, convId) };
+          } catch (err) {
+            console.error(`[bg] sync failed ${convId}:`, err.message);
+            return { convId, success: false };
+          }
+        })
+      );
+
+      for (const r of batchResults) {
+        if (!r.success) { failed++; continue; }
+        const c = meta[r.convId] || {};
+        const rawMsgs = r.data.chat_messages || r.data.messages || [];
+        have[r.convId] = {
+          uuid:        r.convId,
+          name:        c.name || '',
+          created_at:  c.created_at || null,
+          updated_at:  c.updated_at || null,
+          messages_z:  await compress(rawMsgs.map(slimMessage)),
+          fetchedAt:   Date.now(),
+        };
+        done++;
+      }
+
+      try {
+        await chrome.storage.local.set({ library });
+      } catch (storageErr) {
+        console.error('[bg] sync storage write failed (quota?):', storageErr.message);
+        throw storageErr;
+      }
+      await publish({ done, failed });
+    }
+
+    const reg2 = (await chrome.storage.local.get('accountRegistry')).accountRegistry || registry;
+    if (!reg2[orgId]) reg2[orgId] = registry[orgId];
+    reg2[orgId].sweepDone        = failed === 0;
+    reg2[orgId].sweepCompletedAt = Date.now();
+    reg2[orgId].convCount        = Object.keys(have).length;
+    await chrome.storage.local.set({ accountRegistry: reg2 });
+
+    console.log(`[bg] sync ${orgId} complete: ${done} stored, ${failed} failed`);
+    await publish({ running: false, phase: 'done', done, failed });
+  } catch (err) {
+    console.error('[bg] sync error:', err);
+    await publish({ running: false, phase: 'error', error: err.message });
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+// A worker that was killed mid-sync leaves sweepStatus.running set. Whenever the worker
+// starts again (browser start, popup open, any message), pick the sync back up.
+async function resumeInterruptedSync() {
+  const { sweepStatus } = await chrome.storage.local.get('sweepStatus');
+  if (sweepStatus && sweepStatus.running && !activeSync) {
+    console.log('[bg] resuming interrupted sync');
+    startSync('resume');
+  }
+}
+
 // --- OCR iframe bridge ---
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -317,132 +456,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'sweepAccount') {
-    (async () => {
-      try {
-        const { orgId, email, orgName } = await detectOrgAndAccount();
-
-        // Load account registry
-        const stored = await chrome.storage.local.get(['accountRegistry', 'sweepCursor']);
-        const registry = stored.accountRegistry || {};
-        const cursor   = stored.sweepCursor || {};
-
-        // Fetch full conversation list
-        const allConvs = await fetchAllConversations(orgId);
-        const convIndex = {};
-        for (const c of allConvs) {
-          convIndex[c.uuid] = { uuid: c.uuid, name: c.name, created_at: c.created_at, updated_at: c.updated_at };
-        }
-
-        // Register / update account entry
-        if (!registry[orgId]) {
-          registry[orgId] = { orgId, email, orgName, firstSeen: Date.now() };
-        }
-        registry[orgId].email    = email || registry[orgId].email;
-        registry[orgId].orgName  = orgName || registry[orgId].orgName;
-        registry[orgId].convCount = allConvs.length;
-        registry[orgId].sweepStarted = Date.now();
-        registry[orgId].sweepDone = false;
-        await chrome.storage.local.set({ accountRegistry: registry });
-
-        // Fetch in batches; write to library as we go
-        const stored2 = await chrome.storage.local.get('library');
-        const library = stored2.library || {};
-        if (!library[orgId]) library[orgId] = {};
-
-        // Resumable cursor: only skip UUIDs that are BOTH in the cursor AND
-        // actually present in the library. Cursor-only entries (e.g. from a
-        // failed or pre-fix sweep) get re-fetched so nothing is silently lost.
-        const prevFetched = new Set(
-          (cursor[orgId] || []).filter(id => !!library[orgId][id])
-        );
-        const pending = allConvs.map(c => c.uuid).filter(id => !prevFetched.has(id));
-
-        console.log(`[bg] sweep ${orgId}: ${allConvs.length} total, ${pending.length} to fetch, ${prevFetched.size} already cached`);
-
-        // Notify popup of sweep start
-        chrome.runtime.sendMessage({
-          action: 'sweepProgress', orgId,
-          done: prevFetched.size, total: allConvs.length, phase: 'fetching'
-        }).catch(() => {});
-
-        const BATCH = 20;
-        let fetched = prevFetched.size;
-
-        for (let bStart = 0; bStart < pending.length; bStart += BATCH) {
-          const batch = pending.slice(bStart, bStart + BATCH);
-
-          // Pause if memory is high
-          while (estimatedHeapMB() > MEM_CEILING_MB) {
-            console.warn(`[bg] sweep heap ~${estimatedHeapMB().toFixed(0)}MB — pausing`);
-            await delay(1500);
-          }
-
-          const batchResults = await Promise.all(
-            batch.map(async (convId, bi) => {
-              await delay(bi * FETCH_DELAY_MS);
-              try {
-                const data = await fetchConversation(orgId, convId);
-                return { convId, success: true, data };
-              } catch (err) {
-                console.error(`[bg] sweep failed ${convId}:`, err.message);
-                return { convId, success: false };
-              }
-            })
-          );
-
-          for (const r of batchResults) {
-            if (r.success) {
-              const meta = convIndex[r.convId] || {};
-              const rawMsgs = r.data.chat_messages || r.data.messages || [];
-              const slimmed = rawMsgs.map(slimMessage);
-              const compressed = await compress(slimmed);
-              library[orgId][r.convId] = {
-                uuid:        r.convId,
-                name:        meta.name || '',
-                created_at:  meta.created_at || null,
-                updated_at:  meta.updated_at || null,
-                messages_z:  compressed,
-                fetchedAt:   Date.now(),
-              };
-              prevFetched.add(r.convId);
-            }
-            fetched++;
-          }
-
-          // Persist library + cursor after each batch
-          cursor[orgId] = [...prevFetched];
-          try {
-            await chrome.storage.local.set({ library, sweepCursor: cursor });
-          } catch (storageErr) {
-            console.error('[bg] sweep storage write failed (quota?):', storageErr.message);
-            throw storageErr;
-          }
-
-          chrome.runtime.sendMessage({
-            action: 'sweepProgress', orgId,
-            done: fetched, total: allConvs.length, phase: 'fetching'
-          }).catch(() => {});
-        }
-
-        // Mark sweep complete
-        const reg2 = (await chrome.storage.local.get('accountRegistry')).accountRegistry || registry;
-        reg2[orgId].sweepDone = true;
-        reg2[orgId].sweepCompletedAt = Date.now();
-        reg2[orgId].convCount = Object.keys(library[orgId] || {}).length;
-        await chrome.storage.local.set({ accountRegistry: reg2 });
-
-        chrome.runtime.sendMessage({
-          action: 'sweepProgress', orgId,
-          done: fetched, total: allConvs.length, phase: 'done'
-        }).catch(() => {});
-
-        sendResponse({ success: true, orgId, fetched, total: allConvs.length });
-      } catch (err) {
-        console.error('[bg] sweep error:', err);
-        sendResponse({ success: false, error: err.message });
-      }
-    })();
-    return true;
+    const started = startSync(request.auto ? 'auto' : 'manual');
+    sendResponse({ success: true, started, alreadyRunning: !started });
+    return false;
   }
 
   // Returns all library conversations decompressed, ready for exportBulk in content script.
@@ -519,19 +535,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'clearLibrary') {
+    if (activeSync) {
+      sendResponse({ success: false, error: 'A sync is running — try again when it finishes' });
+      return false;
+    }
     (async () => {
       try {
         const { orgId } = request;
         if (orgId) {
-          // Clear single account
-          const stored = await chrome.storage.local.get(['library', 'sweepCursor', 'accountRegistry']);
+          const stored = await chrome.storage.local.get(['library', 'accountRegistry']);
           const lib = stored.library || {};
-          const cur = stored.sweepCursor || {};
           const reg = stored.accountRegistry || {};
           delete lib[orgId];
-          delete cur[orgId];
           if (reg[orgId]) { reg[orgId].sweepDone = false; delete reg[orgId].sweepCompletedAt; }
-          await chrome.storage.local.set({ library: lib, sweepCursor: cur, accountRegistry: reg });
+          await chrome.storage.local.set({ library: lib, accountRegistry: reg });
         } else {
           await chrome.storage.local.remove(['library', 'sweepCursor']);
         }
@@ -595,3 +612,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+
+resumeInterruptedSync();
+chrome.runtime.onStartup.addListener(resumeInterruptedSync);

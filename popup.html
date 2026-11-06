@@ -353,11 +353,20 @@
     </div>
 
     <div class="row">
+      <span class="label">Auto-sync library <span class="slow-note">(while claude.ai is open)</span></span>
+      <label class="switch">
+        <input type="checkbox" id="tog-autosync">
+        <div class="switch-track"></div>
+        <div class="switch-thumb"></div>
+      </label>
+    </div>
+
+    <div class="row">
       <button id="btn-sweep" style="
         flex:1; padding:5px 0; background:#2a3a2a; border:1px solid #3a5a3a;
         color:#a8c8a8; border-radius:5px; cursor:pointer; font-size:11px;
         font-weight:500; transition:background 0.15s;
-      ">⬇ Sweep this account</button>
+      ">⬇ Sync this account now</button>
     </div>
 
     <div id="sweep-progress-section" style="display:none; margin-top:4px;">
@@ -394,7 +403,7 @@
   </div>
 
   <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
-    <span id="version-badge" style="font-size:9px;color:#333;cursor:default;user-select:none;letter-spacing:0.04em;">v8.0.0.0</span>
+    <span id="version-badge" style="font-size:9px;color:#333;cursor:default;user-select:none;letter-spacing:0.04em;">v8.1.0.0</span>
     <div class="status" id="status" style="margin-top:0;"></div>
   </div>
 
