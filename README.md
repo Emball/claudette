@@ -76,12 +76,13 @@ Prior Claudette transcripts pasted or attached to a chat are detected automatica
 
 Tap the version number at the bottom of the popup four times to reveal the dev section. Its **Library** archives every conversation on the account you're logged into into local extension storage:
 
-- **Sweep this account** fetches all of its chats (resumable; chats already stored are skipped).
-- Sweep each account once while logged into it. The library is per Chrome profile and lists every account you've swept, with a per-account clear button.
-- **Search library** opens a search page over everything you've swept, across all accounts. All words must match (use `"quotes"` for exact phrases), and it also searches code and commands Claude ran through tools. Filter by account or by who wrote the message. Each result shows the account it belongs to, so you know which login to switch to before opening the link.
+- **Sync this account now** fetches every new chat and every chat that has new messages. It keeps running in the background if you close the popup, and picks up where it left off if the browser restarts or the extension updates. Chats you delete on claude.ai stay in your archive.
+- **Auto-sync library** does that automatically for whichever account you're logged into: when you open claude.ai, and every 10 minutes while a tab stays open. Switch accounts, open claude.ai, and the new account syncs itself.
+- The library is per Chrome profile and lists every account you've synced, with a per-account clear button.
+- **Search library** opens a search page over everything you've synced, across all accounts. All words must match (use `"quotes"` for exact phrases), and it also searches code and commands Claude ran through tools. Filter by account or by who wrote the message. Each result shows the account it belongs to, so you know which login to switch to before opening the link.
 - **Export full library (ZIP)** exports everything under your current export settings.
 
-Chats swept by an older version don't have tool inputs stored. To add them, clear that account in the list (✕) and sweep it again.
+Chats synced by an older version don't have tool inputs stored. To add them, clear that account in the list (✕) and sync it again.
 
 ## Coming soon
 
@@ -93,4 +94,4 @@ Chats swept by an older version don't have tool inputs stored. To add them, clea
 - **Auth:** session cookie only — no API keys, no OAuth
 - **API:** Claude's internal undocumented endpoints (same ones the frontend uses — may break on Anthropic UI changes)
 - **OCR:** Tesseract.js v5 in a hidden extension-origin iframe; `eng.traineddata` cached in Cache Storage after first run
-- **Concurrency:** 3 parallel conversation fetches for exports, library sweeps in batches of 20, 3 parallel OCR jobs, memory ceiling to prevent tab crashes
+- **Concurrency:** 3 parallel conversation fetches for exports, library syncs in batches of 20, 3 parallel OCR jobs, memory ceiling to prevent tab crashes

@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 8.1.0.0**
+**Current version: 8.2.0.0**
 
 **Version sync:** The version in this file, the `"version"` field in `manifest.json`, and the `#version-badge` text in `popup.html` must always be kept in sync. AGENTS.md and the badge use MAJOR.MINOR.PATCH.MICRO (badge prefixed `v`); manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update all three on every commit.
 
@@ -34,7 +34,7 @@ transcript.js                        Pure text pipeline (truncate, dedup, read f
 transcript.html / transcript_import.js  Import page — applies current settings to an old transcript
 search.html / search.js              Library search page — extension tab, reads the library from chrome.storage.local
 image_classifier.js                  Image fingerprinting + OCR routing, semaphore-based worker pool
-popup.html / popup.js                Settings popup — format/content toggles + progress mirror
+popup.html / popup.js                Settings popup — format/content toggles, export progress mirror, library sync status
 ocr_engine.html                      Hidden iframe page (extension origin) — Tesseract runs here
 ocr_engine.js                        Tesseract init + recognition, image inversion, postMessage bridge
 worker-overwrites.js                 Patches Tesseract worker fetch to cache traineddata in Cache Storage
@@ -447,6 +447,8 @@ Global progress state flows through `window.cceProgress(phase, current, total, l
 
 **Download icon fill animation:** Two-layer SVG — white fill layer clipped by a rising `<rect>` (clipPath), grey outline layer always on top. Fill rect `y` animates from `24` (empty) to `0` (full) via CSS transition as progress updates.
 
+**Bulk export:** `exportBulk` sets `bulkScope`, which folds each chat's `start`/`message`/`image`/`done` events into one `conv` position (chat index plus fraction done, labelled with the chat name), so the shared bar only moves forward.
+
 **Popup mirror:** `content.js` writes `cce_progress: { pct, label }` to `chrome.storage.local` on every progress tick. `popup.js` polls `chrome.storage.local` every 300ms while open and updates its own progress bar from that data.
 
 ---
@@ -514,7 +516,7 @@ screenshot (score < 2):
 ## Performance & Concurrency
 
 - Export fetch (`selectedExport`, `bulkExport`): 3 parallel slots, 200ms stagger between starts
-- Sweep: batches of 20 (see Library)
+- Library sync: batches of 20 (see Library)
 - Memory ceiling: 200MB estimated heap — pauses the fetch queue and sweep if exceeded. `estimatedHeapMB()` returns 0 where `performance.memory` is unavailable, so the ceiling never triggers there
 - OCR semaphore: 3 concurrent jobs max
 
@@ -557,15 +559,19 @@ screenshot (score < 2):
 }
 ```
 
-Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept in full: `text`, `thinking` (with summaries), `artifact` content, `context` bodies. `tool_use` keeps name, title and `input` (string fields capped at 100,000 chars, oversized object fields dropped, both logged); `tool_result` is dropped; `document` blocks keep only their name. Attachments drop blobs and thumbnails, keep `preview_path` (query string stripped) and image dimensions, and non-image attachments keep `extracted_content`. Library exports with `toolContent` on render tool inputs but never results. Chats swept before inputs were stored have none until that account is cleared and swept again. Entries carry no `current_leaf_message_uuid`, so library exports render every stored branch in flat order. Decompress with `decompress(entry.messages_z)`.
+Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept in full: `text`, `thinking` (with summaries), `artifact` content, `context` bodies. `tool_use` keeps name, title and `input` (string fields capped at 100,000 chars, oversized object fields dropped, both logged); `tool_result` is dropped; `document` blocks keep only their name. Attachments drop blobs and thumbnails, keep `preview_path` (query string stripped) and image dimensions, and non-image attachments keep `extracted_content`. Library exports with `toolContent` on render tool inputs but never results. Chats synced before inputs were stored have none until that account is cleared and synced again. Entries carry no `current_leaf_message_uuid`, so library exports render every stored branch in flat order. Decompress with `decompress(entry.messages_z)`.
 
-**Sweep cursor** (`chrome.storage.local` key: `sweepCursor`): Maps orgId → array of already-fetched UUIDs. Allows resuming interrupted sweeps without re-fetching.
+**Sync flow:** `sweepAccount` (the popup button, or `auto: true` from `content.js`) calls `startSync` and replies `{started, alreadyRunning}` immediately. `syncAccount` runs detached from the message channel, so closing the popup cannot interrupt it, and only one sync runs at a time. It detects the logged-in account, lists all its chats (paginated), and fetches those missing from the library or whose `updated_at` differs from the stored copy, in batches of 20 in parallel with starts staggered by 200ms. The library is written after each batch. Chats deleted on claude.ai stay archived. A chat that fails to fetch is skipped and retried on the next sync (`sweepDone` stays false). Manual syncs always run and report errors; `auto` syncs are skipped when that account's `sweepCompletedAt` is under 10 minutes old, and stay silent when no account is logged in.
 
-**Sweep flow:** `sweepAccount` in `background.js` lists all conversations (paginated), skips UUIDs present in both `sweepCursor` and `library`, then fetches the rest in batches of 20, all in parallel with starts staggered by 200ms. Library and cursor are written after each batch; `sweepProgress` messages drive the popup bar. Cached conversations are never re-fetched, so chats that gained messages after the sweep stay stale until that account is cleared and swept again.
+**Sync status** (`chrome.storage.local` key: `sweepStatus`): `{ running, reason, orgId, phase: 'listing' | 'fetching' | 'done' | 'error', done, total, failed, error, startedAt, updatedAt }`. Published after each batch and every 20s by a heartbeat that also keeps the service worker alive; the popup renders it live through `storage.onChanged`. If the worker dies mid-sync, `running` stays set and `resumeInterruptedSync` restarts the sync on the next worker start.
+
+**Auto-sync** (`chrome.storage.local` key: `autoSync`, default false): while enabled, `content.js` requests an `auto` sync on every claude.ai page load, every 10 minutes while the tab stays open, and when the toggle is switched on. Switching browser accounts and loading claude.ai therefore syncs the new account.
+
+`library` is a single storage key holding every account, so each sync, stats call and search loads all of it into memory.
 
 **Export:** `exportLibrary` (background) returns every stored conversation decompressed and sorted by `created_at`, each tagged with `_accountEmail`, `_accountName`, `_orgId`. The popup button sends `exportLibraryZip` to the active claude.ai tab; `content.js` fetches that data and runs `exportBulk` under the current export settings. There is no JSONL output.
 
-**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, a Sweep button with progress bar, an account list with per-account clear (`clearLibrary` with `orgId`; without it only `library` and `sweepCursor` are removed, not `accountRegistry`), a Search library button (opens `search.html` in a tab), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
+**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, the Auto-sync toggle, a Sync this account now button with a progress bar driven by `sweepStatus`, an account list with per-account clear (`clearLibrary` with `orgId`; refused while a sync runs; without `orgId` it removes `library` and any legacy `sweepCursor`, not `accountRegistry`), a Search library button (opens `search.html` in a tab), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
 
 **Search** (`search.html` / `search.js`): reads `library` and `accountRegistry` from `chrome.storage.local` and decompresses every conversation once on load into an in-memory index (lowercased text per message; the Reload button re-reads after a sweep). Indexed per message: text, thinking, tool title and input, artifacts, context bodies, document and attachment names, extracted attachment text. All terms must match somewhere in a chat's title or messages; `"quoted"` terms are exact phrases. Filters: account and sender (anyone, human, assistant). Ranking: title matches, then number of messages containing every term, then recency. Snippets are decompressed per displayed result (50 per page) and rendered with `textContent`/`<mark>`, never innerHTML. Results link to `claude.ai/chat/{uuid}`, which opens only while logged into the owning account, so each result shows the account.
 
@@ -575,11 +581,11 @@ Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept i
 
 ## Dev Mode
 
-`devMode` (`chrome.storage.local`, default false) toggles when the popup version badge is tapped 4 times within 2 seconds, and shows `#dev-section`. All Module 2 UI (library sweep, export and search, plus future chaining) goes inside `#dev-section` until deliberately promoted. The gate is UI-only: background actions respond regardless. `sttPersist` is not gated.
+`devMode` and `autoSync` (`chrome.storage.local`, default false). `devMode` toggles when the popup version badge is tapped 4 times within 2 seconds, and shows `#dev-section`. All Module 2 UI (library sync, export and search, plus future chaining) goes inside `#dev-section` until deliberately promoted. The gate is UI-only: background actions and auto-sync respond regardless. `sttPersist` is not gated.
 
 ## Message Actions
 
-`background.js` handles: `ocr`, `detectOrgId`, `detectOrgAndAccount`, `fetchConversation`, `fetchAllConversations`, `fetchProjects`, `selectedExport`, `bulkExport`, `sweepAccount`, `exportLibrary`, `getLibraryStats`, `clearLibrary`. `content.js` handles `exportLibraryZip`. The popup receives `sweepProgress`.
+`background.js` handles: `ocr`, `detectOrgId`, `detectOrgAndAccount`, `fetchConversation`, `fetchAllConversations`, `fetchProjects`, `selectedExport`, `bulkExport`, `sweepAccount`, `exportLibrary`, `getLibraryStats`, `clearLibrary`. `content.js` handles `exportLibraryZip` and sends `sweepAccount` with `auto: true`.
 
 ---
 

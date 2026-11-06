@@ -239,6 +239,7 @@ async function concurrentFetch(orgId, convIds, tabId) {
 
 const SWEEP_BATCH = 20;
 const SYNC_HEARTBEAT_MS = 20000;
+const AUTO_SYNC_COOLDOWN_MS = 10 * 60 * 1000;
 let activeSync = null;
 
 function startSync(reason) {
@@ -262,21 +263,38 @@ async function syncAccount(reason) {
     try { await chrome.storage.local.set({ sweepStatus: status }); }
     catch (err) { console.error('[bg] sweepStatus write failed:', err.message); }
   };
-  const heartbeat = setInterval(() => {
-    chrome.runtime.getPlatformInfo().catch(() => {});
-    publish({});
-  }, SYNC_HEARTBEAT_MS);
+  let heartbeat = null;
 
   try {
     console.log(`[bg] sync (${reason}) starting`);
-    await publish({});
-    const { orgId, email, orgName } = await detectOrgAndAccount();
+    let info;
+    try {
+      info = await detectOrgAndAccount();
+    } catch (err) {
+      console.warn(`[bg] sync (${reason}): no account detected: ${err.message}`);
+      if (reason !== 'auto') await publish({ running: false, phase: 'error', error: err.message });
+      return;
+    }
+    const { orgId, email, orgName } = info;
     status.orgId = orgId;
-    const allConvs = await fetchAllConversations(orgId);
 
-    const stored   = await chrome.storage.local.get(['accountRegistry', 'library']);
-    const registry = stored.accountRegistry || {};
-    const library  = stored.library || {};
+    const registry = (await chrome.storage.local.get('accountRegistry')).accountRegistry || {};
+    if (reason === 'auto') {
+      const last = registry[orgId] && registry[orgId].sweepCompletedAt;
+      if (last && Date.now() - last < AUTO_SYNC_COOLDOWN_MS) {
+        console.log(`[bg] auto sync skipped: ${orgId} synced ${Math.round((Date.now() - last) / 1000)}s ago`);
+        return;
+      }
+    }
+
+    heartbeat = setInterval(() => {
+      chrome.runtime.getPlatformInfo().catch(() => {});
+      publish({});
+    }, SYNC_HEARTBEAT_MS);
+    await publish({});
+
+    const allConvs = await fetchAllConversations(orgId);
+    const library  = (await chrome.storage.local.get('library')).library || {};
     const have     = library[orgId] || (library[orgId] = {});
 
     if (!registry[orgId]) registry[orgId] = { orgId, email, orgName, firstSeen: Date.now() };
@@ -355,7 +373,7 @@ async function syncAccount(reason) {
     console.error('[bg] sync error:', err);
     await publish({ running: false, phase: 'error', error: err.message });
   } finally {
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
   }
 }
 

@@ -92,11 +92,27 @@ function loadSettings() {
 // Calls window.cceProgress(phase, current, total, label) if defined.
 // content.js installs that hook; exporter works fine without it.
 
-function reportProgress(phase, current, total, label) {
+function emitProgress(phase, current, total, label) {
   try {
     if (typeof window !== 'undefined' && typeof window.cceProgress === 'function')
       window.cceProgress(phase, current, total, label);
-  } catch(e) { /* never block export on progress errors */ }
+  } catch (e) { console.warn('[exporter] progress hook failed:', e.message); }
+}
+
+// During a bulk export each chat runs its own start/message/image/done events. Folding them
+// into one 'conv' position (chat index + fraction done) keeps the shared bar monotonic.
+let bulkScope = null;
+
+function reportProgress(phase, current, total, label) {
+  if (bulkScope && (phase === 'start' || phase === 'message' || phase === 'image' || phase === 'done')) {
+    if (phase === 'start') bulkScope.frac = 0;
+    else if (phase === 'message') bulkScope.frac = total > 0 ? current / total : 0;
+    else if (phase === 'done') bulkScope.frac = 1;
+    const detail = phase === 'image' ? `${bulkScope.name} · ${label} (${current + 1}/${total})` : bulkScope.name;
+    emitProgress('conv', bulkScope.index + bulkScope.frac, bulkScope.total, detail);
+    return;
+  }
+  emitProgress(phase, current, total, label);
 }
 
 // --- Message chain builder ---
@@ -477,30 +493,36 @@ async function exportBulk(results, settingsOverride) {
   const zip = new JSZip();
   let ok = 0, fail = 0;
 
-  for (let ri = 0; ri < results.length; ri++) {
-    const result = results[ri];
-    reportProgress('conv', ri, results.length, result.data?.name || result.uuid || '');
-    if (!result.success || !result.data) {
-      console.warn('[exporter] skipping failed result:', result.error || result.uuid);
-      fail++;
-      continue;
+  try {
+    for (let ri = 0; ri < results.length; ri++) {
+      const result = results[ri];
+      const chatName = result.data?.name || result.uuid || '';
+      bulkScope = { index: ri, total: results.length, name: chatName, frac: 0 };
+      reportProgress('conv', ri, results.length, chatName);
+      if (!result.success || !result.data) {
+        console.warn('[exporter] skipping failed result:', result.error || result.uuid);
+        fail++;
+        continue;
+      }
+      const conv   = result.data;
+      const title  = sanitizeFilename(conv.name || conv.uuid);
+      let { text, images, nonImageFiles } = await conversationToText(conv, settings);
+      // Prefix image/file names with conv title to avoid collisions in flat ZIP root
+      images = images.map(img => {
+        const prefixed = `${title}_${img.filename}`;
+        text = text.replaceAll(`./${img.filename}`, `./${prefixed}`);
+        return { ...img, filename: prefixed };
+      });
+      nonImageFiles = nonImageFiles.map(f => ({ ...f, filename: `${title}_${f.filename}` }));
+      zip.file(`${title}.${ext}`, text);
+      if (settings.zip && images.length > 0)
+        images.forEach(img => zip.file(img.filename, img.blob));
+      if (settings.zipFiles && nonImageFiles.length > 0)
+        nonImageFiles.forEach(f => zip.file(f.filename, f.content));
+      ok++;
     }
-    const conv   = result.data;
-    const title  = sanitizeFilename(conv.name || conv.uuid);
-    let { text, images, nonImageFiles } = await conversationToText(conv, settings);
-    // Prefix image/file names with conv title to avoid collisions in flat ZIP root
-    images = images.map(img => {
-      const prefixed = `${title}_${img.filename}`;
-      text = text.replaceAll(`./${img.filename}`, `./${prefixed}`);
-      return { ...img, filename: prefixed };
-    });
-    nonImageFiles = nonImageFiles.map(f => ({ ...f, filename: `${title}_${f.filename}` }));
-    zip.file(`${title}.${ext}`, text);
-    if (settings.zip && images.length > 0)
-      images.forEach(img => zip.file(img.filename, img.blob));
-    if (settings.zipFiles && nonImageFiles.length > 0)
-      nonImageFiles.forEach(f => zip.file(f.filename, f.content));
-    ok++;
+  } finally {
+    bulkScope = null;
   }
 
   console.log(`[exporter] bulk: ${ok} ok, ${fail} failed`);

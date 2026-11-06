@@ -101,7 +101,7 @@ window.cceProgress = function(phase, current, total, label) {
   } else if (phase === 'message') {
     _progressLabel = `Processing messages… (${current + 1}/${total})`;
   } else if (phase === 'conv') {
-    _progressLabel = `Chat ${current + 1}/${total}: ${label}`;
+    _progressLabel = `Chat ${Math.min(Math.floor(current) + 1, total)}/${total}: ${label}`;
   } else if (phase === 'zipping') {
     _progressLabel = label;
   } else if (phase === 'done') {
@@ -519,4 +519,45 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
   })();
   return true;
+});
+
+// ── Auto-sync trigger ─────────────────────────────────────────────────────────
+// With auto-sync on, ask the service worker to sync the logged-in account once per page
+// load, periodically while the tab stays open, and right when the toggle is switched on.
+// The worker skips accounts synced recently and ignores requests while a sync is running.
+
+const AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+let _autoSyncTimer = null;
+
+function requestAutoSync(why) {
+  try {
+    chrome.runtime.sendMessage({ action: 'sweepAccount', auto: true }, resp => {
+      if (chrome.runtime.lastError) {
+        console.warn('[cce] auto-sync request failed:', chrome.runtime.lastError.message);
+        return;
+      }
+      console.log(`[cce] auto-sync requested (${why}): ${resp?.started ? 'started' : 'already running'}`);
+    });
+    return true;
+  } catch (err) {
+    console.warn('[cce] auto-sync unavailable (extension reloaded?):', err.message);
+    clearInterval(_autoSyncTimer);
+    _autoSyncTimer = null;
+    return false;
+  }
+}
+
+function applyAutoSync(enabled, why) {
+  clearInterval(_autoSyncTimer);
+  _autoSyncTimer = null;
+  if (!enabled) return;
+  if (!requestAutoSync(why)) return;
+  _autoSyncTimer = setInterval(() => requestAutoSync('interval'), AUTO_SYNC_INTERVAL_MS);
+}
+
+chrome.storage.local.get({ autoSync: false }, data => applyAutoSync(!!data.autoSync, 'page load'));
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !('autoSync' in changes)) return;
+  applyAutoSync(!!changes.autoSync.newValue, 'toggled on');
 });

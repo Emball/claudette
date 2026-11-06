@@ -24,6 +24,7 @@ const DEFAULTS = {
 
 const LOCAL_DEFAULTS = {
   devMode: false,
+  autoSync: false,
 };
 
 const SYNC_EXTRA_DEFAULTS = {
@@ -61,6 +62,7 @@ const inpUserName = document.getElementById('inp-username');
 const status      = document.getElementById('status');
 const progLabel   = document.getElementById('prog-label');
 const progFill    = document.getElementById('prog-fill');
+const togSttPersist = document.getElementById('tog-stt-persist');
 
 function flash(msg) {
   status.textContent = msg;
@@ -185,6 +187,7 @@ const sweepProgLabel    = document.getElementById('sweep-prog-label');
 const sweepProgFill     = document.getElementById('sweep-prog-fill');
 const libAccountsList   = document.getElementById('lib-accounts-list');
 const btnExportLib      = document.getElementById('btn-export-lib');
+const togAutoSync       = document.getElementById('tog-autosync');
 
 let currentOrgId = null;
 let sweepRunning = false;
@@ -221,7 +224,13 @@ function renderAccountsList(stats) {
     btn.addEventListener('click', () => {
       const orgId = btn.dataset.orgid;
       if (!confirm(`Clear cached data for this account?`)) return;
-      chrome.runtime.sendMessage({ action: 'clearLibrary', orgId }, () => refreshLibraryUI());
+      chrome.runtime.sendMessage({ action: 'clearLibrary', orgId }, resp => {
+        if (!resp?.success) {
+          console.warn('[popup] clear refused:', resp?.error);
+          flash('Sync running — try later');
+        }
+        refreshLibraryUI();
+      });
     });
   });
 }
@@ -232,11 +241,31 @@ function refreshLibraryUI() {
   });
 }
 
-function setSweepRunning(running) {
-  sweepRunning = running;
-  btnSweep.disabled = running;
-  btnSweep.textContent = running ? '⏳ Sweeping…' : '⬇ Sweep this account';
-  sweepProgressSec.style.display = running ? 'block' : 'none';
+const STATUS_STALE_MS = 60000;
+let lastStatus = null;
+
+function sweepLabel(st) {
+  const failed = st.failed ? ` · ${st.failed} failed` : '';
+  if (st.phase === 'error') return `Sync failed: ${st.error || 'unknown error'}`;
+  if (st.phase === 'listing') return 'Listing chats…';
+  if (st.phase === 'done') return `Up to date — ${st.done} chats${failed}`;
+  const stale = Date.now() - (st.updatedAt || 0) > STATUS_STALE_MS;
+  return `${stale ? 'Resuming… ' : ''}${st.done} / ${st.total} conversations${failed}`;
+}
+
+function renderSweepStatus(st) {
+  lastStatus = st || null;
+  sweepRunning = !!(st && st.running);
+  btnSweep.disabled = sweepRunning;
+  btnSweep.textContent = sweepRunning ? '⏳ Syncing…' : '⬇ Sync this account now';
+
+  const recent = st && (st.running || Date.now() - (st.updatedAt || 0) < STATUS_STALE_MS);
+  sweepProgressSec.style.display = recent ? 'block' : 'none';
+  if (!recent) return;
+
+  const pct = st.phase === 'done' ? 100 : (st.total > 0 ? Math.min(st.done / st.total, 1) * 100 : 0);
+  sweepProgFill.style.width = pct.toFixed(1) + '%';
+  sweepProgLabel.textContent = sweepLabel(st);
 }
 
 // Library UI is dev-mode only; account detection runs once when it is first revealed.
@@ -260,33 +289,39 @@ function initLibraryUI() {
 
 btnSweep.addEventListener('click', () => {
   if (sweepRunning) return;
-  setSweepRunning(true);
-  sweepProgLabel.textContent = 'Starting sweep…';
+  console.log('[popup] manual sync requested');
+  sweepProgressSec.style.display = 'block';
+  sweepProgLabel.textContent = 'Starting…';
   sweepProgFill.style.width = '0%';
-
   chrome.runtime.sendMessage({ action: 'sweepAccount' }, resp => {
-    setSweepRunning(false);
-    if (resp?.success) {
-      flash(`Swept ${resp.fetched} chats`);
-      sweepProgLabel.textContent = `Done — ${resp.fetched} chats`;
-      sweepProgFill.style.width = '100%';
-    } else {
-      flash('Sweep failed');
-      sweepProgLabel.textContent = 'Sweep failed';
-      sweepProgFill.style.width = '0%';
+    if (chrome.runtime.lastError || !resp?.success) {
+      console.error('[popup] sync request failed:', chrome.runtime.lastError?.message || resp?.error);
+      flash('Sync failed to start');
+      return;
     }
-    refreshLibraryUI();
+    if (resp.alreadyRunning) flash('Already syncing');
   });
 });
 
-// Listen for live sweep progress from background
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.action !== 'sweepProgress') return;
-  const pct = msg.total > 0 ? ((msg.done / msg.total) * 100).toFixed(1) : 0;
-  sweepProgFill.style.width = pct + '%';
-  sweepProgLabel.textContent = msg.phase === 'done'
-    ? `Done — ${msg.done} chats`
-    : `${msg.done} / ${msg.total} conversations`;
+togAutoSync.addEventListener('change', () => {
+  const val = togAutoSync.checked;
+  chrome.storage.local.set({ autoSync: val }, () => {
+    console.log('[popup] autoSync =', val);
+    flash(val ? 'Auto-sync on' : 'Auto-sync off');
+  });
+});
+
+// Live status comes from chrome.storage.local, written by the background sync, so the popup
+// can be closed and reopened mid-sync without losing anything.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.sweepStatus) {
+    const wasRunning = !!(lastStatus && lastStatus.running);
+    const next = changes.sweepStatus.newValue || null;
+    renderSweepStatus(next);
+    if (wasRunning && !(next && next.running)) refreshLibraryUI();
+  }
+  if (changes.autoSync) togAutoSync.checked = !!changes.autoSync.newValue;
 });
 
 document.getElementById('btn-search-lib').addEventListener('click', () => {
@@ -312,7 +347,6 @@ btnExportLib.addEventListener('click', () => {
 // ── Dev mode ──────────────────────────────────────────────────────────────────
 
 const devSection   = document.getElementById('dev-section');
-const togSttPersist = document.getElementById('tog-stt-persist');
 const versionBadge = document.getElementById('version-badge');
 
 function applyDevMode(enabled) {
@@ -321,8 +355,11 @@ function applyDevMode(enabled) {
   if (enabled) initLibraryUI();
 }
 
-chrome.storage.local.get(LOCAL_DEFAULTS, local => {
+chrome.storage.local.get({ ...LOCAL_DEFAULTS, sweepStatus: null }, local => {
+  console.log('[popup] devMode =', local.devMode, 'autoSync =', local.autoSync);
   applyDevMode(local.devMode);
+  togAutoSync.checked = !!local.autoSync;
+  renderSweepStatus(local.sweepStatus);
 });
 
 togSttPersist.addEventListener('change', () => {
