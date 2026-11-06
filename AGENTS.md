@@ -5,9 +5,9 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 7.0.2.0**
+**Current version: 7.0.3.0**
 
-**Version sync:** The version in this file and the `"version"` field in `manifest.json` must always be kept in sync. AGENTS.md uses MAJOR.MINOR.PATCH.MICRO; manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update both on every commit.
+**Version sync:** The version in this file, the `"version"` field in `manifest.json`, and the `#version-badge` text in `popup.html` must always be kept in sync. AGENTS.md and the badge use MAJOR.MINOR.PATCH.MICRO (badge prefixed `v`); manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update all three on every commit.
 
 ---
 
@@ -36,7 +36,7 @@ image_classifier.js                  Image fingerprinting + OCR routing, semapho
 popup.html / popup.js                Settings popup — format/content toggles + progress mirror
 ocr_engine.html                      Hidden iframe page (extension origin) — Tesseract runs here
 ocr_engine.js                        Tesseract init + recognition, image inversion, postMessage bridge
-worker-overwrites.js                 Patches Tesseract worker fetch to cache traineddata via IndexedDB
+worker-overwrites.js                 Patches Tesseract worker fetch to cache traineddata in Cache Storage
 jszip.min.js                         Bundled JSZip — no CDN dependency
 tesseract.min.js                     Bundled Tesseract.js v5
 worker.min.js                        Tesseract worker bundle
@@ -62,6 +62,7 @@ Headers: `Accept: application/json`. GETs only unless noted.
 | List all conversations | GET | `/organizations/{orgId}/chat_conversations` |
 | Fetch single conversation (full tree) | GET | `/organizations/{orgId}/chat_conversations/{uuid}?tree=True&rendering_mode=messages&render_all_tools=true` |
 | List projects | GET | `/organizations/{orgId}/projects` |
+| Account info | GET | `/account` |
 
 **Query params on single conversation fetch:**
 - `tree=True` — returns branched message tree structure rather than flat array
@@ -72,7 +73,7 @@ Headers: `Accept: application/json`. GETs only unless noted.
 
 **Alternative org detection:** `document.cookie` contains `lastActiveOrg={uuid}` — simpler but less reliable than the API approach. Useful as a fallback.
 
-**Pagination:** The `/chat_conversations` list endpoint returns all conversations as a flat array with no pagination observed. May change as accounts scale.
+**Pagination:** The `/chat_conversations` list endpoint is offset-based: `?limit=50&offset=N`, no total-count header. `fetchAllConversations` pages until a page returns fewer than 50 items (confirmed by probe 2026-09-04).
 
 ---
 
@@ -108,7 +109,7 @@ Claude.ai does **not** use the browser's `SpeechRecognition` / `webkitSpeechReco
 - `CloseStream` is a downstream consequence of the above, not the root cause
 - `getUserMedia` is called twice on page load — Claude.ai re-acquires the stream when starting a session
 
-**Fix approach (6.2.4.0):** `stt_patch.js` spoofs `document.visibilityState` → `"visible"` and `document.hidden` → `false` at all times when `sttPersist` is active, and uses `stopImmediatePropagation()` at capture phase to swallow `visibilitychange` events before Claude.ai's listener sees them. Also keeps the CloseStream suppression as belt-and-suspenders. `sttPersist` is a standard user-facing toggle in the Voice section of the popup (stored in `chrome.storage.sync`), no longer gated behind dev mode. The patch is active only when `sttPersist` is on. Side-effect: spoofing `visibilityState` globally may affect other visibility-gated behavior on Claude.ai (lazy loading, analytics pausing, etc.) — acceptable tradeoff, user opt-in.
+**Fix approach (6.2.4.0):** `stt_patch.js` spoofs `document.visibilityState` → `"visible"` and `document.hidden` → `false` at all times when `sttPersist` is active, and uses `stopImmediatePropagation()` at capture phase to swallow `visibilitychange` events before Claude.ai's listener sees them. Also keeps the CloseStream suppression as belt-and-suspenders. `sttPersist` is a standard user-facing toggle in the Tweaks section of the popup (stored in `chrome.storage.sync`), no longer gated behind dev mode. The patch is active only when `sttPersist` is on. Side-effect: spoofing `visibilityState` globally may affect other visibility-gated behavior on Claude.ai (lazy loading, analytics pausing, etc.) — acceptable tradeoff, user opt-in.
 
 ---
 
@@ -327,7 +328,6 @@ These endpoints exist and have been validated during development but are not yet
 | Fetch project conversations | GET | `/organizations/{orgId}/projects/{projectId}/conversations` | Lists convos within a specific project |
 | File preview (full size) | GET | `/organizations/{orgId}/files/{fileId}/preview` | Returns image blob, used for OCR |
 | File thumbnail | GET | `/organizations/{orgId}/files/{fileId}/thumbnail` | Smaller version of above |
-| Account/profile info | GET | `/account` | Returns user profile, email, account UUID |
 | Usage / stats | GET | `/organizations/{orgId}/usage` | Usage metrics — TBD exact structure |
 
 ---
@@ -369,12 +369,12 @@ These endpoints are expected to exist based on the API's patterns and Claude.ai'
 |---|---|
 | Screenshot (OCR text found) | `*<Screenshot: name.png>*` + fenced block with extracted text |
 | Screenshot (no text / OCR off) | `*<Screenshot: name.png>*` + fenced block: `no extractable text` |
-| Screenshot (no text, zip=on) | `*<Screenshot: name.png>*` + `![name](./images/name.png)` |
+| Screenshot (no text, zip=on) | `*<Screenshot: name.png>*` + `![name](./name.png)` |
 | Uploaded file (with extension) | `*<File: name.ext>*` + fenced block with filename comment + content |
 | Uploaded file (no extension/name) | Rendered inline as plain fenced block, no label, not zipped |
 | Empty file (0 bytes) | Skipped entirely |
 | Pasted text | `*<Pasted>*` + fenced block |
-| Photo (zip=on) | `*<Photo: name.jpg>*` + `![name.jpg](./images/name.jpg)` |
+| Photo (zip=on) | `*<Photo: name.jpg>*` + `![name.jpg](./name.jpg)` |
 | Photo (zip=off) | `*<Photo: name.jpg>*` only |
 | Image (images=off) | `*<Image not exported: name>*` |
 | Tool/action header | `> **Action title**` |
@@ -402,8 +402,8 @@ Text already carrying a truncation marker is never re-truncated, and the pipelin
 
 **ZIP structure:**
 - Single export, no images → bare `.md`/`.txt`
-- Single export, images present → ZIP with `.md` and `images/` at root (no subfolder nesting)
-- Bulk export (2+ convos) → single ZIP, one subfolder per conversation, `images/` inside each
+- Single export with images or files (and the matching ZIP toggle on) → ZIP with `{title}.md` and the attachments, all at the ZIP root (no subfolders)
+- Bulk export (2+ convos) → one flat ZIP `claude_export_{timestamp}.zip`: a `{title}.md` per conversation, attachments at the root prefixed `{title}_` with image links rewritten to match. A single result is routed to the single export.
 
 ---
 
@@ -428,7 +428,8 @@ Text already carrying a truncation marker is never re-truncated, and the pipelin
 | `images` | `true` | Process images at all |
 | `ocr` | `false` | Run Tesseract OCR on screenshots — **off by default** (slow) |
 | `zip` | `true` | Package image files into ZIP (sub-toggle, requires `images: true`) |
-| `zipFiles` | `true` | ZIP non-image file attachments into `files/` folder |
+| `zipFiles` | `true` | ZIP non-image file attachments (at the ZIP root) |
+| `userName` | `'User'` | Label for human turns |
 | `sttPersist` | `false` | Keep mic active when switching tabs — spoofs `document.visibilityState` to prevent Claude.ai's visibility listener and Chrome's ScriptProcessorNode throttle from killing the STT stream |
 
 Settings loaded fresh at the start of each export. Sub-toggles (`ocr`, `zip`) are disabled in the UI when their parent (`images`) is off.
@@ -470,24 +471,25 @@ Multi-signal fingerprint scoring — photo vs screenshot — before any OCR runs
 images=off → skip entirely, no placeholder
 
 photo (score ≥ 2):
-  zip=on  → *<Photo: filename>* + ![filename](./images/filename)
+  zip=on  → *<Photo: filename>* + ![filename](./filename)
   zip=off → *<Photo: filename>* only
 
 screenshot (score < 2):
   ocr=on, text found (confidence ≥ 35, chars ≥ 20):
     → *<Screenshot: filename>* + fenced block with extracted text
   ocr=on, no text / error / timeout:
-    zip=on  → *<Screenshot: filename>* + save to images/ + embed
+    zip=on  → *<Screenshot: filename>* + save to ZIP root + embed
     zip=off → *<Screenshot: filename>* + fenced: "no extractable text"
   ocr=off:
-    zip=on  → *<Screenshot: filename>* + save to images/ + embed
+    zip=on  → *<Screenshot: filename>* + save to ZIP root + embed
     zip=off → *<Screenshot: filename>* + fenced: "no extractable text"
 ```
 
 **OCR implementation:**
 - Tesseract.js v5, SIMD LSTM engine, English
 - Runs inside a hidden `<iframe>` at `ocr_engine.html` (extension-origin) — bypasses claude.ai CSP
-- `eng.traineddata` fetched from `tessdata.projectnaptha.com` on first run, cached in IndexedDB by `worker-overwrites.js`
+- `eng.traineddata` fetched from `tessdata.projectnaptha.com` on first run (fallback: naptha/tessdata on GitHub), cached in Cache Storage (`traineddata`) by `worker-overwrites.js`
+- A Tesseract worker is created and terminated per image
 - Image inverted before OCR (dark UIs → white-on-dark text, inversion improves accuracy)
 - Semaphore: 3 concurrent OCR jobs max
 - Timeout: 120s per image
@@ -498,7 +500,7 @@ screenshot (score < 2):
 
 **Active chat top bar** — Export button and Copy button before the Share button. Visible on `/chat/*`. Export downloads; Copy writes formatted text to clipboard (same rendering pipeline, same settings, no image blobs). Both injected by `injectChatTopBarButton()`.
 
-**Chats page selection bar** (`/chats`) — Export button next to Cancel, visible when conversations are checked. UUIDs extracted by walking from checked `<input[type="checkbox"]>` up to nearest `<a href="/chat/{uuid}">`. Single selection routes through `exportSingle` (no subfolder ZIP).
+**Chats page selection bar** (`/chats`) — Export button next to Cancel, visible when conversations are checked. UUIDs extracted by walking from checked `<input[type="checkbox"]>` up to nearest `<a href="/chat/{uuid}">`. Selections go through `exportBulk`, which delegates a single conversation to `exportSingle`.
 
 **Button persistence strategy:** `tryInject()` tracks the identity (DOM node reference) of the Share button and Cancel button. If the node changes (React re-render nuked the toolbar), all Claudette buttons are removed and re-injected. A fast 50ms polling loop runs until buttons are present, then slows to 2s intervals. `MutationObserver` triggers `tryInject()` debounced at 150ms on every DOM mutation. This eliminates the first-load latency and button disappearance on re-renders.
 
@@ -510,8 +512,9 @@ screenshot (score < 2):
 
 ## Performance & Concurrency
 
-- Conversation fetch: 3 parallel slots, 200ms stagger between starts
-- Memory ceiling: 200MB estimated heap — pauses fetch queue if exceeded
+- Export fetch (`selectedExport`, `bulkExport`): 3 parallel slots, 200ms stagger between starts
+- Sweep: batches of 20 (see Library)
+- Memory ceiling: 200MB estimated heap — pauses the fetch queue and sweep if exceeded. `estimatedHeapMB()` returns 0 where `performance.memory` is unavailable, so the ceiling never triggers there
 - OCR semaphore: 3 concurrent jobs max
 
 ---
@@ -553,17 +556,27 @@ screenshot (score < 2):
 }
 ```
 
-Messages are slimmed before storage (`slimMessage()` in `background.js`): base64 image blobs, `thumbnail_asset`, and raw file bytes are dropped. Image attachment `preview_path` stores the URL path only (query string stripped); `image_width` and `image_height` are preserved for the classifier. Non-image file attachments keep `extracted_content` so document text survives to export. Decompress with `decompress(entry.messages_z)` before use. Thinking blocks keep `summaries`; `tool_result` blocks and tool inputs are dropped, so `toolContent` has no effect on library data.
+Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept in full: `text`, `thinking` (with summaries), `artifact` content, `context` bodies. `tool_use` keeps only name and title (input dropped); `tool_result` is dropped; `document` blocks keep only their name. Attachments drop blobs and thumbnails, keep `preview_path` (query string stripped) and image dimensions, and non-image attachments keep `extracted_content`. So `toolContent` has no effect on library exports and tool inputs are not searchable. Entries carry no `current_leaf_message_uuid`, so library exports render every stored branch in flat order. Decompress with `decompress(entry.messages_z)`.
 
 **Sweep cursor** (`chrome.storage.local` key: `sweepCursor`): Maps orgId → array of already-fetched UUIDs. Allows resuming interrupted sweeps without re-fetching.
 
-**Sweep flow:** `sweepAccount` action in `background.js` — fetches full conversation list, skips already-cached UUIDs, fetches remaining in batches of 20 with 3-slot concurrency, persists after each batch. Emits `sweepProgress` messages for popup live updates.
+**Sweep flow:** `sweepAccount` in `background.js` lists all conversations (paginated), skips UUIDs present in both `sweepCursor` and `library`, then fetches the rest in batches of 20, all in parallel with starts staggered by 200ms. Library and cursor are written after each batch; `sweepProgress` messages drive the popup bar. Cached conversations are never re-fetched, so chats that gained messages after the sweep stay stale until that account is cleared and swept again.
 
-**Export:** `exportLibrary` action — dumps all accounts' libraries as JSONL (one JSON object per line, each embedding orgId + account email/name). Output file: `claudette-library-YYYY-MM-DD.jsonl`. This is the corpus input for the standalone categorization script.
+**Export:** `exportLibrary` (background) returns every stored conversation decompressed and sorted by `created_at`, each tagged with `_accountEmail`, `_accountName`, `_orgId`. The popup button sends `exportLibraryZip` to the active claude.ai tab; `content.js` fetches that data and runs `exportBulk` under the current export settings. There is no JSONL output.
 
-**Popup UI:** Library section shows current account label, Sweep button with live progress bar, scrollable account history list (email, conv count, sweep date, clear button), and Export full library button.
+**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, a Sweep button with progress bar, an account list with per-account clear (`clearLibrary` with `orgId`; without it only `library` and `sweepCursor` are removed, not `accountRegistry`), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
 
-**`/account` endpoint:** Probed at sweep time for email. May return `{ email_address, email }` or fail — failure is silently caught, display falls back to orgName.
+**`/account` endpoint:** probed at sweep time and by `detectOrgAndAccount` for the email (`email_address` or `email`); failure is caught and the display falls back to the org name.
+
+---
+
+## Dev Mode
+
+`devMode` (`chrome.storage.local`, default false) toggles when the popup version badge is tapped 4 times within 2 seconds, and shows `#dev-section`. All Module 2 and 3 UI (library sweep and export, plus future chaining and search) goes inside `#dev-section` until deliberately promoted. The gate is UI-only: background actions respond regardless. `sttPersist` is not gated.
+
+## Message Actions
+
+`background.js` handles: `ocr`, `detectOrgId`, `detectOrgAndAccount`, `fetchConversation`, `fetchAllConversations`, `fetchProjects`, `selectedExport`, `bulkExport`, `sweepAccount`, `exportLibrary`, `getLibraryStats`, `clearLibrary`. `content.js` handles `exportLibraryZip`. The popup receives `sweepProgress`.
 
 ---
 
@@ -706,7 +719,7 @@ If Cache Chat Data is enabled, the attached image is immediately queued for back
 
 ### Module 3 — Conversation Search
 
-Full-text search across the local library. Instant, no API calls per query. Results link to conversation on claude.ai. Dependent on Module 2 library.
+Full-text search across the local library. Instant, no API calls per query. Results link to conversation on claude.ai and show the owning account. Dependent on Module 2 library; UI goes in `#dev-section`.
 
 ### Module 4 — Prompt Library
 

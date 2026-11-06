@@ -9,7 +9,7 @@
 // Chrome both believe the tab is always visible. This prevents both the
 // JS-level tear-down and the ScriptProcessorNode throttle.
 //
-// Only active when devMode + sttPersist are both on (bridged from content.js
+// Only active when sttPersist is on (bridged from content.js
 // via CustomEvent, since chrome.storage is unavailable at document_start).
 
 (function () {

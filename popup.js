@@ -239,18 +239,24 @@ function setSweepRunning(running) {
   sweepProgressSec.style.display = running ? 'block' : 'none';
 }
 
-// Detect current account on popup open
-chrome.runtime.sendMessage({ action: 'detectOrgAndAccount' }, resp => {
-  if (resp?.success) {
-    currentOrgId = resp.orgId;
-    const label = resp.email || resp.orgName || resp.orgId.slice(0, 16) + '…';
-    libAccountLabel.textContent = label;
-    libAccountLabel.style.color = '#aaa';
-  } else {
-    libAccountLabel.textContent = 'Not on claude.ai';
-  }
-  refreshLibraryUI();
-});
+// Library UI is dev-mode only; account detection runs once when it is first revealed.
+let libraryInited = false;
+function initLibraryUI() {
+  if (libraryInited) return;
+  libraryInited = true;
+  console.log('[popup] library UI init');
+  chrome.runtime.sendMessage({ action: 'detectOrgAndAccount' }, resp => {
+    if (resp?.success) {
+      currentOrgId = resp.orgId;
+      const label = resp.email || resp.orgName || resp.orgId.slice(0, 16) + '…';
+      libAccountLabel.textContent = label;
+      libAccountLabel.style.color = '#aaa';
+    } else {
+      libAccountLabel.textContent = 'Not on claude.ai';
+    }
+    refreshLibraryUI();
+  });
+}
 
 btnSweep.addEventListener('click', () => {
   if (sweepRunning) return;
@@ -308,6 +314,7 @@ const versionBadge = document.getElementById('version-badge');
 function applyDevMode(enabled) {
   devSection.style.display = enabled ? 'block' : 'none';
   versionBadge.style.color = enabled ? '#c8902a' : '#333';
+  if (enabled) initLibraryUI();
 }
 
 chrome.storage.local.get(LOCAL_DEFAULTS, local => {
