@@ -78,13 +78,13 @@ Tap the version number at the bottom of the popup four times to reveal the dev s
 
 - **Sweep this account** fetches all of its chats (resumable; chats already stored are skipped).
 - Sweep each account once while logged into it. The library is per Chrome profile and lists every account you've swept, with a per-account clear button.
+- **Search library** opens a search page over everything you've swept, across all accounts. All words must match (use `"quotes"` for exact phrases), and it also searches code and commands Claude ran through tools. Filter by account or by who wrote the message. Each result shows the account it belongs to, so you know which login to switch to before opening the link.
 - **Export full library (ZIP)** exports everything under your current export settings.
 
-Tool inputs aren't stored yet, so code Claude wrote through tool calls isn't in the library.
+Chats swept by an older version don't have tool inputs stored. To add them, clear that account in the list (✕) and sweep it again.
 
 ## Coming soon
 
-- **Conversation Search** — full-text search across the local library, showing which account each result lives in.
 - **Session Chaining** — named groups of sessions; spawning a new chain chat injects the full prior context so Claude picks up seamlessly.
 - **Prompt Library** — store and inject reusable prompts into the input box.
 

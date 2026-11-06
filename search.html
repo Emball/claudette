@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Claudette — Search library</title>
+<style>
+  body { background:#1a1a1a; color:#e8e8e8; font:14px -apple-system,'Segoe UI',sans-serif; max-width:860px; margin:24px auto; padding:0 16px; }
+  h2 { margin:0 0 12px; }
+  #controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #q { flex:1; min-width:260px; background:#1c1c1c; color:#e8e8e8; border:1px solid #333; border-radius:6px; padding:9px 10px; font:14px inherit; }
+  select, button { background:#2a2a2a; color:#e8e8e8; border:1px solid #333; border-radius:6px; padding:8px 10px; font:13px inherit; cursor:pointer; }
+  button:hover, select:hover { background:#333; }
+  #status { color:#9a9a9a; font-size:12px; min-height:16px; margin:10px 0; }
+  .result { border-bottom:1px solid #262626; padding:10px 0; }
+  .result a { color:#e8c070; text-decoration:none; font-weight:500; }
+  .result a:hover { text-decoration:underline; }
+  .meta { color:#7a7a7a; font-size:11px; margin:2px 0 4px; }
+  .snippet { color:#bdbdbd; font-size:13px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
+  mark { background:#6b5a1e; color:#fff; border-radius:2px; padding:0 1px; }
+  #more { margin:14px 0; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+  <h2>Search library</h2>
+  <div id="controls">
+    <input id="q" type="search" placeholder='Search chats — all words must match; "quotes" for exact phrases' autofocus>
+    <select id="account"></select>
+    <select id="sender">
+      <option value="any">Anyone's messages</option>
+      <option value="human">My messages</option>
+      <option value="assistant">Claude's messages</option>
+    </select>
+    <button id="reload" title="Re-read the library after a sweep">Reload</button>
+  </div>
+  <div id="status">Loading library…</div>
+  <div id="results"></div>
+  <button id="more" hidden>Show more</button>
+  <script src="search.js"></script>
+</body>
+</html>

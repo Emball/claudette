@@ -63,14 +63,39 @@ async function fetchProjects(orgId) {
   return apiFetch(`/organizations/${orgId}/projects`);
 }
 
+const MAX_TOOL_INPUT_CHARS = 100000;
+
+// Keep tool input (commands, file contents) so it is searchable; cap oversized fields.
+function slimToolInput(input) {
+  if (!input || typeof input !== 'object') return null;
+  const out = {};
+  for (const [key, val] of Object.entries(input)) {
+    if (typeof val === 'string') {
+      if (val.length > MAX_TOOL_INPUT_CHARS) console.warn(`[bg] tool input '${key}' capped at ${MAX_TOOL_INPUT_CHARS} chars (was ${val.length})`);
+      out[key] = val.slice(0, MAX_TOOL_INPUT_CHARS);
+    } else if (val !== null && typeof val === 'object') {
+      if (JSON.stringify(val).length <= MAX_TOOL_INPUT_CHARS) out[key] = val;
+      else console.warn(`[bg] tool input '${key}' dropped (object over ${MAX_TOOL_INPUT_CHARS} chars)`);
+    } else if (val !== null && val !== undefined) {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+
 // Strip a raw API conversation down to only what the library needs.
 // Drops: extracted_content blobs, tool_result blocks, thumbnail fields, unused metadata.
-// Keeps: text, tool titles, artifact content, image URL paths (query string stripped — signed params expire).
+// Keeps: text, tool titles and inputs, artifact content, image URL paths (query string stripped — signed params expire).
 function slimMessage(msg) {
   const slimContent = (msg.content || []).map(block => {
     if (block.type === 'text')     return { type: 'text', text: block.text || '' };
     if (block.type === 'thinking') return { type: 'thinking', thinking: block.thinking || '', summaries: block.summaries || [] };
-    if (block.type === 'tool_use') return { type: 'tool_use', name: block.name, title: block.title || block.name };
+    if (block.type === 'tool_use') {
+      const slim = { type: 'tool_use', name: block.name, title: block.title || block.name };
+      const input = slimToolInput(block.input);
+      if (input) slim.input = input;
+      return slim;
+    }
     if (block.type === 'tool_result') return null;
     if (block.type === 'artifact')
       return { type: 'artifact', title: block.title, language: block.language || null, content: block.content || '' };

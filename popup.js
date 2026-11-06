@@ -289,6 +289,10 @@ chrome.runtime.onMessage.addListener((msg) => {
     : `${msg.done} / ${msg.total} conversations`;
 });
 
+document.getElementById('btn-search-lib').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('search.html') });
+});
+
 btnExportLib.addEventListener('click', () => {
   btnExportLib.textContent = '…exporting';
   btnExportLib.disabled = true;

@@ -5,7 +5,7 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 7.0.4.0**
+**Current version: 8.0.0.0**
 
 **Version sync:** The version in this file, the `"version"` field in `manifest.json`, and the `#version-badge` text in `popup.html` must always be kept in sync. AGENTS.md and the badge use MAJOR.MINOR.PATCH.MICRO (badge prefixed `v`); manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update all three on every commit.
 
@@ -32,6 +32,7 @@ content.js                           Injected into claude.ai — button injectio
 exporter.js                          Converts raw API data → MD/TXT, packages ZIPs via JSZip
 transcript.js                        Pure text pipeline (truncate, dedup, read filter, unwrap) — no chrome/DOM deps
 transcript.html / transcript_import.js  Import page — applies current settings to an old transcript
+search.html / search.js              Library search page — extension tab, reads the library from chrome.storage.local
 image_classifier.js                  Image fingerprinting + OCR routing, semaphore-based worker pool
 popup.html / popup.js                Settings popup — format/content toggles + progress mirror
 ocr_engine.html                      Hidden iframe page (extension origin) — Tesseract runs here
@@ -556,7 +557,7 @@ screenshot (score < 2):
 }
 ```
 
-Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept in full: `text`, `thinking` (with summaries), `artifact` content, `context` bodies. `tool_use` keeps only name and title (input dropped); `tool_result` is dropped; `document` blocks keep only their name. Attachments drop blobs and thumbnails, keep `preview_path` (query string stripped) and image dimensions, and non-image attachments keep `extracted_content`. So `toolContent` has no effect on library exports and tool inputs are not searchable. Entries carry no `current_leaf_message_uuid`, so library exports render every stored branch in flat order. Decompress with `decompress(entry.messages_z)`.
+Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept in full: `text`, `thinking` (with summaries), `artifact` content, `context` bodies. `tool_use` keeps name, title and `input` (string fields capped at 100,000 chars, oversized object fields dropped, both logged); `tool_result` is dropped; `document` blocks keep only their name. Attachments drop blobs and thumbnails, keep `preview_path` (query string stripped) and image dimensions, and non-image attachments keep `extracted_content`. Library exports with `toolContent` on render tool inputs but never results. Chats swept before inputs were stored have none until that account is cleared and swept again. Entries carry no `current_leaf_message_uuid`, so library exports render every stored branch in flat order. Decompress with `decompress(entry.messages_z)`.
 
 **Sweep cursor** (`chrome.storage.local` key: `sweepCursor`): Maps orgId → array of already-fetched UUIDs. Allows resuming interrupted sweeps without re-fetching.
 
@@ -564,7 +565,9 @@ Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept i
 
 **Export:** `exportLibrary` (background) returns every stored conversation decompressed and sorted by `created_at`, each tagged with `_accountEmail`, `_accountName`, `_orgId`. The popup button sends `exportLibraryZip` to the active claude.ai tab; `content.js` fetches that data and runs `exportBulk` under the current export settings. There is no JSONL output.
 
-**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, a Sweep button with progress bar, an account list with per-account clear (`clearLibrary` with `orgId`; without it only `library` and `sweepCursor` are removed, not `accountRegistry`), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
+**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, a Sweep button with progress bar, an account list with per-account clear (`clearLibrary` with `orgId`; without it only `library` and `sweepCursor` are removed, not `accountRegistry`), a Search library button (opens `search.html` in a tab), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
+
+**Search** (`search.html` / `search.js`): reads `library` and `accountRegistry` from `chrome.storage.local` and decompresses every conversation once on load into an in-memory index (lowercased text per message; the Reload button re-reads after a sweep). Indexed per message: text, thinking, tool title and input, artifacts, context bodies, document and attachment names, extracted attachment text. All terms must match somewhere in a chat's title or messages; `"quoted"` terms are exact phrases. Filters: account and sender (anyone, human, assistant). Ranking: title matches, then number of messages containing every term, then recency. Snippets are decompressed per displayed result (50 per page) and rendered with `textContent`/`<mark>`, never innerHTML. Results link to `claude.ai/chat/{uuid}`, which opens only while logged into the owning account, so each result shows the account.
 
 **`/account` endpoint:** probed at sweep time and by `detectOrgAndAccount` for the email (`email_address` or `email`); failure is caught and the display falls back to the org name.
 
@@ -572,7 +575,7 @@ Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept i
 
 ## Dev Mode
 
-`devMode` (`chrome.storage.local`, default false) toggles when the popup version badge is tapped 4 times within 2 seconds, and shows `#dev-section`. All Module 2 and 3 UI (library sweep and export, plus future chaining and search) goes inside `#dev-section` until deliberately promoted. The gate is UI-only: background actions respond regardless. `sttPersist` is not gated.
+`devMode` (`chrome.storage.local`, default false) toggles when the popup version badge is tapped 4 times within 2 seconds, and shows `#dev-section`. All Module 2 UI (library sweep, export and search, plus future chaining) goes inside `#dev-section` until deliberately promoted. The gate is UI-only: background actions respond regardless. `sttPersist` is not gated.
 
 ## Message Actions
 
@@ -716,10 +719,6 @@ When the user takes a screenshot (Snipping Tool, Win+Shift+S, Cmd+Shift+4, etc.)
 - Toggleable in settings (default: on)
 
 If Cache Chat Data is enabled, the attached image is immediately queued for background OCR so it is pre-cached before the message is even sent.
-
-### Module 3 — Conversation Search
-
-Full-text search across the local library. Instant, no API calls per query. Results link to conversation on claude.ai and show the owning account. Dependent on Module 2 library; UI goes in `#dev-section`.
 
 ### Module 4 — Prompt Library
 
