@@ -24,14 +24,14 @@ git clone https://github.com/Emball/claudette.git
 Export any Claude.ai conversation as Markdown or plain text, instantly using the following methods:
 
 - **Single chat**: **Export** and **Copy** buttons in the top bar of any open conversation. Export downloads the file; Copy writes the same formatted text straight to your clipboard.
-- **Bulk** — on the `/chats` page, check conversations and hit **Export** in the selection bar.
+- **Bulk** — on the `/chats` page, check conversations and hit **Export** in the selection bar. Several chats download as one ZIP with a Markdown file per conversation.
 
 ### Export format
 
 | Content | Format |
 |---|---|
-| Messages | `**User:**` / `**Assistant:**` inline |
-| Tool calls & output | `> **Action title**` blockquote + fenced block |
+| Messages | `**Your name:**` / `**Claude:**` inline (your name is a setting, default `User`) |
+| Tool calls | `> **Action title**` blockquote; input and output as fenced blocks only when tool call content is on |
 | Thinking blocks | `> *italic blockquote*` *(toggle: off by default)* |
 | Artifacts | Fenced code block with filename as first-line comment |
 | Uploaded files | `*<File: filename.ext>*` + fenced block |
@@ -44,30 +44,53 @@ Export any Claude.ai conversation as Markdown or plain text, instantly using the
 
 | Setting | Default | |
 |---|---|---|
-| Format | MD | `.md` or `.txt` |
-| Include thinking | Off | Extended reasoning blocks |
-| Include tool calls | On | Tool invocations and output |
-| Include images | On | Process images at all |
-| ↳ Use OCR | Off | OCR on screenshots (slow) |
-| ↳ Package in ZIP | On | Save images to ZIP |
-| ZIP non-image files | On | Bundle uploaded files into ZIP |
+| Output type | MD | `.md` or `.txt` |
+| Your name | User | Label for your turns in transcripts |
+| Add Claudette header and footer | On | Wraps the transcript in `[Claudette Chat Export: "title"]` markers |
 | Truncate large documents | On | Pasted/uploaded text over 40 lines is cut to its first and last 16 lines |
-| ↳ Truncate long bash content | On | Same for file contents embedded in tool calls and long tool output |
-| ↳ Tag repeated documents | On | Repeats are matched by content, not filename, and replaced with a short tag |
+| Tag repeated documents | On | Repeats are matched by content, not filename, and replaced with a short tag |
+| ↳ Keep first copy in full | Off | Leaves the first copy of each document uncut |
+| Drop repeated session turns | On | Runs of turns already included earlier in a transcript are replaced by a short note |
+| Trim transcript noise | On | Strips shell-cwd lines and collapses long runs of thinking lines |
+| Truncate long code blocks | On | Claude's code over 20 lines keeps its first 10 and last 5 |
+| Include thinking | Off | Thinking summaries |
+| Include tool call summaries | On | A title line for each tool call |
+| ↳ Include bash calls | Off | Bash tool calls and results |
+| ↳ Include tool call content | Off | Tool input and output, each capped at 4,000 characters |
+| ↳ Truncate long bash content | On | Same cut as documents for tool input and output |
 | ↳ Skip repeat file reads | On | Drops bash reads of content already shown |
+| Include images | On | Process images at all |
+| ↳ Use OCR on screenshots | Off | OCR on screenshots (slow) |
+| ↳ Package images in ZIP | On | Save images to ZIP |
+| ZIP non-image files | On | Bundle uploaded files into ZIP |
 
 The popup's **Clean up an old transcript** opens a page that applies these settings to an older export.
 
 Prior Claudette transcripts pasted or attached to a chat are detected automatically, woven inline into the export without file wrappers, and truncated the same way if they haven't been already.
 
+## Tweaks
+
+- **Keep mic active when switching tabs** — keeps Claude.ai's voice input running while you work in another tab. Off by default.
+
+## Experimental: Library
+
+Tap the version number at the bottom of the popup four times to reveal the dev section. Its **Library** archives every conversation on the account you're logged into into local extension storage:
+
+- **Sweep this account** fetches all of its chats (resumable; chats already stored are skipped).
+- Sweep each account once while logged into it. The library is per Chrome profile and lists every account you've swept, with a per-account clear button.
+- **Export full library (ZIP)** exports everything under your current export settings.
+
+Tool inputs aren't stored yet, so code Claude wrote through tool calls isn't in the library.
+
 ## Coming soon
 
-- **Session Chaining** — a local conversation library. Every chat you open gets absorbed into a local index. Chains are named groups of sessions; spawning a new chain chat injects the full prior context so Claude picks up seamlessly. Powers full-text search across your entire history.
+- **Conversation Search** — full-text search across the local library, showing which account each result lives in.
+- **Session Chaining** — named groups of sessions; spawning a new chain chat injects the full prior context so Claude picks up seamlessly.
 - **Prompt Library** — store and inject reusable prompts into the input box.
 
 ## Technical
 
 - **Auth:** session cookie only — no API keys, no OAuth
 - **API:** Claude's internal undocumented endpoints (same ones the frontend uses — may break on Anthropic UI changes)
-- **OCR:** Tesseract.js v5 in a hidden extension-origin iframe; `eng.traineddata` cached in IndexedDB after first run
-- **Concurrency:** 3 parallel conversation fetches, 3 parallel OCR jobs, memory ceiling to prevent tab crashes
+- **OCR:** Tesseract.js v5 in a hidden extension-origin iframe; `eng.traineddata` cached in Cache Storage after first run
+- **Concurrency:** 3 parallel conversation fetches for exports, library sweeps in batches of 20, 3 parallel OCR jobs, memory ceiling to prevent tab crashes
