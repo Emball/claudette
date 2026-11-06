@@ -5,7 +5,9 @@
 
 The repo is public. The extension is not on the Chrome Web Store — install is manual.
 
-**Current version: 8.2.0.0**
+**Extension ID:** pinned to `abnjkpfoigcpoheapafkjnnkfeapnilo` by the `key` field in `manifest.json`, so settings (`chrome.storage.sync`) and the library (`chrome.storage.local`) survive reinstalls and path changes. Without the key an unpacked extension's ID depends on its folder path.
+
+**Current version: 8.2.0.1**
 
 **Version sync:** The version in this file, the `"version"` field in `manifest.json`, and the `#version-badge` text in `popup.html` must always be kept in sync. AGENTS.md and the badge use MAJOR.MINOR.PATCH.MICRO (badge prefixed `v`); manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update all three on every commit.
 
