@@ -7,7 +7,7 @@ The repo is public. The extension is not on the Chrome Web Store — install is 
 
 **Extension ID:** pinned to `abnjkpfoigcpoheapafkjnnkfeapnilo` by the `key` field in `manifest.json`, so settings (`chrome.storage.sync`) and the library (`chrome.storage.local`) survive reinstalls and path changes. Without the key an unpacked extension's ID depends on its folder path.
 
-**Current version: 8.2.0.1**
+**Current version: 8.2.0.2**
 
 **Version sync:** The version in this file, the `"version"` field in `manifest.json`, and the `#version-badge` text in `popup.html` must always be kept in sync. AGENTS.md and the badge use MAJOR.MINOR.PATCH.MICRO (badge prefixed `v`); manifest.json uses MAJOR.MINOR.PATCH (drop the MICRO). Update all three on every commit.
 
@@ -573,7 +573,7 @@ Messages are slimmed before storage (`slimMessage()` in `background.js`). Kept i
 
 **Export:** `exportLibrary` (background) returns every stored conversation decompressed and sorted by `created_at`, each tagged with `_accountEmail`, `_accountName`, `_orgId`. The popup button sends `exportLibraryZip` to the active claude.ai tab; `content.js` fetches that data and runs `exportBulk` under the current export settings. There is no JSONL output.
 
-**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, the Auto-sync toggle, a Sync this account now button with a progress bar driven by `sweepStatus`, an account list with per-account clear (`clearLibrary` with `orgId`; refused while a sync runs; without `orgId` it removes `library` and any legacy `sweepCursor`, not `accountRegistry`), a Search library button (opens `search.html` in a tab), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
+**Popup UI:** lives in `#dev-section` (see Dev Mode). Shows the current account, the Auto-sync toggle, a Sync this account now button with a progress bar driven by `sweepStatus`, a stored-size line (`getBytesInUse('library')` plus chat and account counts), an account list with per-account clear (`clearLibrary` with `orgId`; refused while a sync runs; without `orgId` it removes `library` and any legacy `sweepCursor`, not `accountRegistry`), a Search library button (opens `search.html` in a tab), and the export button. `detectOrgAndAccount` runs when the section is first revealed.
 
 **Search** (`search.html` / `search.js`): reads `library` and `accountRegistry` from `chrome.storage.local` and decompresses every conversation once on load into an in-memory index (lowercased text per message; the Reload button re-reads after a sweep). Indexed per message: text, thinking, tool title and input, artifacts, context bodies, document and attachment names, extracted attachment text. All terms must match somewhere in a chat's title or messages; `"quoted"` terms are exact phrases. Filters: account and sender (anyone, human, assistant). Ranking: title matches, then number of messages containing every term, then recency. Snippets are decompressed per displayed result (50 per page) and rendered with `textContent`/`<mark>`, never innerHTML. Results link to `claude.ai/chat/{uuid}`, which opens only while logged into the owning account, so each result shows the account.
 

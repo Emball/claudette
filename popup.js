@@ -186,6 +186,7 @@ const sweepProgressSec  = document.getElementById('sweep-progress-section');
 const sweepProgLabel    = document.getElementById('sweep-prog-label');
 const sweepProgFill     = document.getElementById('sweep-prog-fill');
 const libAccountsList   = document.getElementById('lib-accounts-list');
+const libTotal          = document.getElementById('lib-total');
 const btnExportLib      = document.getElementById('btn-export-lib');
 const togAutoSync       = document.getElementById('tog-autosync');
 
@@ -235,9 +236,32 @@ function renderAccountsList(stats) {
   });
 }
 
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+function renderLibraryTotal(stats) {
+  chrome.storage.local.getBytesInUse('library', bytes => {
+    if (chrome.runtime.lastError) {
+      console.error('[popup] getBytesInUse failed:', chrome.runtime.lastError.message);
+      libTotal.textContent = '';
+      return;
+    }
+    const chats = stats.reduce((n, a) => n + a.convCount, 0);
+    const accts = stats.length;
+    libTotal.textContent = `${fmtBytes(bytes)} stored · ${chats} chat${chats === 1 ? '' : 's'} · ${accts} account${accts === 1 ? '' : 's'}`;
+  });
+}
+
 function refreshLibraryUI() {
   chrome.runtime.sendMessage({ action: 'getLibraryStats' }, resp => {
-    if (resp?.success) renderAccountsList(resp.stats);
+    if (!resp?.success) return;
+    renderAccountsList(resp.stats);
+    renderLibraryTotal(resp.stats);
   });
 }
 

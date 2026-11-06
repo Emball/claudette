@@ -78,7 +78,7 @@ Tap the version number at the bottom of the popup four times to reveal the dev s
 
 - **Sync this account now** fetches every new chat and every chat that has new messages. It keeps running in the background if you close the popup, and picks up where it left off if the browser restarts or the extension updates. Chats you delete on claude.ai stay in your archive.
 - **Auto-sync library** does that automatically for whichever account you're logged into: when you open claude.ai, and every 10 minutes while a tab stays open. Switch accounts, open claude.ai, and the new account syncs itself.
-- The library is per Chrome profile and lists every account you've synced, with a per-account clear button.
+- The library is per Chrome profile and lists every account you've synced, with a per-account clear button and the total space it takes up.
 - **Search library** opens a search page over everything you've synced, across all accounts. All words must match (use `"quotes"` for exact phrases), and it also searches code and commands Claude ran through tools. Filter by account or by who wrote the message. Each result shows the account it belongs to, so you know which login to switch to before opening the link.
 - **Export full library (ZIP)** exports everything under your current export settings.
 
